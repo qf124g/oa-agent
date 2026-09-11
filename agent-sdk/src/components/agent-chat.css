@@ -1,0 +1,458 @@
+/* agent-sdk 悬浮助手样式：白底浅蓝主题，类名统一 agent-chat- 前缀避免与宿主应用冲突 */
+
+.agent-chat-root {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 9999;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  color: #1f2329;
+}
+
+/* 悬浮球 */
+.agent-chat-fab {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #4096ff 0%, #1677ff 100%);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(22, 119, 255, 0.4);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.agent-chat-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(22, 119, 255, 0.5);
+}
+.agent-chat-fab-icon {
+  display: block;
+}
+
+/* 未读蓝点 */
+.agent-chat-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #1677ff;
+  border: 2px solid #fff;
+}
+
+/* 面板 */
+.agent-chat-panel {
+  position: relative;
+  width: 400px;
+  background: #fff;
+  border: 1px solid #d6e9ff;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.14);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.agent-chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #f0f7ff;
+  border-bottom: 1px solid #d6e9ff;
+}
+.agent-chat-title {
+  font-weight: 600;
+  color: #1677ff;
+}
+.agent-chat-header-actions {
+  display: flex;
+  gap: 8px;
+}
+.agent-chat-header-btn {
+  border: 1px solid #bae0ff;
+  background: #fff;
+  color: #1677ff;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.agent-chat-header-btn:hover {
+  background: #e6f4ff;
+}
+
+/* 消息列表 */
+.agent-chat-list {
+  overflow-y: auto;
+  padding: 16px;
+  background: #fbfdff;
+}
+.agent-chat-welcome {
+  background: #fff;
+  border: 1px solid #e6f0fb;
+  border-radius: 8px;
+  padding: 14px;
+  color: #4e5969;
+  line-height: 1.7;
+  font-size: 13px;
+}
+.agent-chat-msg {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 14px;
+}
+.agent-chat-msg-user {
+  align-items: flex-end;
+}
+.agent-chat-msg-assistant {
+  align-items: flex-start;
+}
+.agent-chat-bubble {
+  max-width: 85%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.agent-chat-msg-user .agent-chat-bubble {
+  background: #1677ff;
+  color: #fff;
+  border-bottom-right-radius: 2px;
+}
+.agent-chat-msg-assistant .agent-chat-bubble {
+  background: #fff;
+  border: 1px solid #e6f0fb;
+  border-bottom-left-radius: 2px;
+}
+.agent-chat-typing {
+  color: #86909c;
+  font-size: 13px;
+  padding: 6px 2px;
+}
+.agent-chat-error {
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+  color: #cf1322;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+/* 工具调用块 */
+.agent-chat-tool {
+  width: 100%;
+  border: 1px solid #d6e9ff;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.agent-chat-tool-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: #4e5969;
+  text-align: left;
+}
+.agent-chat-tool-header:hover {
+  background: #f0f7ff;
+}
+.agent-chat-tool-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.agent-chat-tool-dot-running {
+  background: #1677ff;
+  animation: agent-chat-blink 1s infinite;
+}
+.agent-chat-tool-dot-success {
+  background: #52c41a;
+}
+.agent-chat-tool-dot-error {
+  background: #ff4d4f;
+}
+@keyframes agent-chat-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+.agent-chat-tool-name {
+  font-weight: 600;
+  color: #1677ff;
+}
+.agent-chat-tool-args {
+  color: #86909c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+.agent-chat-tool-status {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.agent-chat-tool-arrow {
+  flex-shrink: 0;
+  color: #86909c;
+}
+.agent-chat-tool-detail {
+  border-top: 1px dashed #d6e9ff;
+  padding: 8px 10px;
+  background: #fbfdff;
+}
+.agent-chat-tool-section {
+  font-size: 12px;
+  color: #86909c;
+  margin: 4px 0;
+}
+.agent-chat-tool-json {
+  margin: 0 0 8px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #e6f0fb;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 输入区 */
+.agent-chat-inputrow {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid #e6f0fb;
+  background: #fff;
+}
+.agent-chat-input {
+  flex: 1;
+  border: 1px solid #d6e9ff;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+}
+.agent-chat-input:focus {
+  border-color: #1677ff;
+}
+.agent-chat-send {
+  border: none;
+  background: #1677ff;
+  color: #fff;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.agent-chat-send:disabled {
+  background: #a8c7fa;
+  cursor: not-allowed;
+}
+
+/* ---------- 写操作确认框 ---------- */
+
+.agent-confirm-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(31, 35, 41, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 10;
+}
+
+.agent-confirm-dialog {
+  width: 100%;
+  max-width: 340px;
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+
+.agent-confirm-title-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.agent-confirm-badge {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #1677ff;
+  background: #e6f4ff;
+  border: 1px solid #91caff;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.agent-confirm-badge-danger {
+  color: #cf1322;
+  background: #fff2f0;
+  border-color: #ffccc7;
+}
+
+.agent-confirm-op-title {
+  font-weight: 600;
+  color: #1f2329;
+}
+
+.agent-confirm-summary {
+  font-size: 13px;
+  color: #4e5969;
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+
+.agent-confirm-section {
+  font-size: 12px;
+  color: #86909c;
+  margin-bottom: 6px;
+}
+
+.agent-confirm-json {
+  margin: 0 0 14px;
+  padding: 8px;
+  background: #fbfdff;
+  border: 1px solid #e6f0fb;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.agent-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.agent-confirm-btn {
+  border-radius: 6px;
+  padding: 6px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.agent-confirm-btn-cancel {
+  border: 1px solid #d6e9ff;
+  background: #fff;
+  color: #4e5969;
+}
+.agent-confirm-btn-cancel:hover {
+  background: #f0f7ff;
+}
+
+.agent-confirm-btn-ok {
+  border: 1px solid #1677ff;
+  background: #1677ff;
+  color: #fff;
+}
+.agent-confirm-btn-ok:hover {
+  background: #4096ff;
+}
+
+.agent-confirm-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---------- 执行日志面板 ---------- */
+
+.agent-log-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.agent-log-empty {
+  color: #86909c;
+  font-size: 13px;
+  padding: 12px;
+}
+.agent-log-item {
+  border: 1px solid #e6f0fb;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.agent-log-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.agent-log-step {
+  flex-shrink: 0;
+  color: #1677ff;
+  background: #e6f4ff;
+  border: 1px solid #91caff;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+}
+.agent-log-title {
+  font-weight: 600;
+  color: #1f2329;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-log-time {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: #86909c;
+  font-size: 11px;
+}
+.agent-log-detail {
+  margin-top: 6px;
+  color: #4e5969;
+  line-height: 1.5;
+  word-break: break-all;
+}
+.agent-log-details {
+  margin-top: 6px;
+}
+.agent-log-details summary {
+  cursor: pointer;
+  color: #1677ff;
+  font-size: 12px;
+  user-select: none;
+}
+.agent-log-pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  background: #fbfdff;
+  border: 1px solid #e6f0fb;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

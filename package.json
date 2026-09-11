@@ -1,0 +1,20 @@
+{
+  "name": "oa-platform-agent",
+  "version": "0.2.0",
+  "private": true,
+  "workspaces": [
+    "web",
+    "agent-server",
+    "agent-sdk",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,agent,web \"npm run dev:backend\" \"npm run dev:agent\" \"npm run dev:web\"",
+    "dev:backend": "npm run dev -w backend",
+    "dev:agent": "npm run dev -w agent-server",
+    "dev:web": "npm run dev -w web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

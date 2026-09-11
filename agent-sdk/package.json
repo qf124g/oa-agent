@@ -1,0 +1,12 @@
+{
+  "name": "agent-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "React 版 Agent 助手 SDK：可嵌入任意 React 应用，提供悬浮聊天助手组件",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  }
+}

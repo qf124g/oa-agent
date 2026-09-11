@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+
+# 编辑器与工具目录
+.vscode/
+.trae/
+
+# 个人简历等隐私文件，勿提交到公开仓库
+姚小飞简历*
