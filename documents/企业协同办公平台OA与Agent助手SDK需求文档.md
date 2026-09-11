@@ -1,22 +1,24 @@
-# 企业协同办公平台（OA）+ Agent 助手 SDK 需求文档与实施计划
+# 企业协同办公平台（OA）+ Agent 助手 SDK 需求文档
 
-## Context（背景与目标）
+## 背景与目标
 
-「企业协同办公平台（OA）」
+「企业协同办公平台（OA）」演示项目：
 
-- **react 前端**（web）+ **真实 Java 后端**（java-backend，Spring Boot，替代原 mock-platform-api）+ **agent 助手**（agent-server = Node + agent-sdk = React SDK）
-- agent 助手独立于 Java 前端开发：前端只通过 SDK 接入，agent 通过 REST 调 Java 后端
+- **React 前端**（web）+ **Node.js 业务后端**（backend = Express + TS）+ **Agent 助手**（agent-server = Node 服务 + agent-sdk = React SDK）
+- Agent 助手独立于业务前后端开发：前端只通过 SDK 接入，agent-server 通过 REST 调业务后端
 - 助手为**悬浮弹窗**，点击打开会话面板
-- 覆盖：事项代办、新建（待办/审批/公告/知识库文档等写操作）、权限校验、用户确认操作、基础知识回答、知识库构建（向量 RAG）
+- 覆盖：事项代办、新建（待办/审批/公告/知识库文档等写操作）、权限校验、用户确认操作、基础知识问答、知识库构建（向量 RAG）
 - 写操作**完整落地**（真正调后端执行 + 确认 + 权限校验，非演示假成功）
 
-### 关键决策（已与用户确认）
+### 关键决策
+
 | 决策项 | 结论 |
 |---|---|
 | 领域 | 企业协同办公平台（OA） |
-| Java 后端 | 真实 Spring Boot（Maven 独立管理，非 mock） |
-| agent 写操作 | 完整落地（新建/审批真正落库，含确认与权限） |
-| 知识库 | 向量库 RAG（embedding + 余弦相似度检索） |
+| 业务后端 | Node.js（Express + TypeScript + tsx），内存数据存储，纳入 npm workspaces 统一编排 |
+| Agent 写操作 | 完整落地（新建/审批真正落库，含确认与权限） |
+| 知识库 | 向量库 RAG（Embedding + 余弦相似度检索） |
+| 前端 UI | Ant Design v6 + AntV 图表，统一主题 |
 
 ## 总体架构
 
@@ -24,21 +26,21 @@
 浏览器 web (Vite 5173)
   │ 页面数据 HTTP + Bearer token            │ 聊天 SSE + Bearer token
   ▼                                          ▼
-java-backend (Spring Boot 8080)      agent-server (Node 3002)
-  ▲                                          │ ① function-calling 循环
+backend (Express 8080)               agent-server (Express 3002)
+  ▲                                          │ ① toolcall 多步推理循环
   │ 工具执行透传 Bearer token                │ ② 写操作确认协议
   └──────────────────────────────────────────┤ ③ RAG 向量检索
                                              ▼
-                                    大模型/Embedding（OpenAI 兼容，阿里云百炼 qwen-plus + text-embedding-v3）
+                              大模型/Embedding（OpenAI 兼容协议，阿里云百炼 qwen-plus + text-embedding-v3）
 ```
 
-- npm workspaces 管理 3 个 Node 包：web / agent-server / agent-sdk（SDK 无独立服务，源码引用）
-- java-backend 独立于 npm，Maven 管理，`mvn spring-boot:run` 启动
-- 沿用原有约定：统一响应 `{code,message,data}`、分页 `{list,total,page,pageSize}`、SSE 基元事件、`AgentProvider.getAuthHeaders` 透传模式
+- npm workspaces 统一管理 4 个包：web / backend / agent-server / agent-sdk（SDK 无独立服务，源码引用）
+- 统一响应 `{code,message,data}`、分页 `{list,total,page,pageSize}`、SSE 事件流、`AgentProvider.getAuthHeaders` 鉴权透传模式
 
 ## OA 领域模型与页面
 
-### 领域实体（Java 内存 ConcurrentHashMap，带种子数据）
+### 领域实体（backend 内存 Map，带种子数据）
+
 - **Department** 部门：id、name、parentId、managerEmployeeId、orderNo
 - **Employee** 员工：id、userNo、name、departmentId、title、phone、email、role(EMPLOYEE/ADMIN)、password
 - **TodoTask** 待办：id、ownerId、title、description、priority(HIGH/MEDIUM/LOW)、status(PENDING/DONE)、dueDate、assignerId、createdAt
@@ -46,7 +48,8 @@ java-backend (Spring Boot 8080)      agent-server (Node 3002)
 - **Announcement** 公告：id、title、content、authorId、pinned、publishedAt
 - **KnowledgeDocument** 知识库文档：id、title、content、category、uploadedBy、createdAt、updatedAt
 
-### 角色权限（demo 简化）
+### 角色权限
+
 | 能力 | EMPLOYEE | ADMIN |
 |---|---|---|
 | 登录/查通讯录/公告/读知识库 | ✅ | ✅ |
@@ -56,146 +59,156 @@ java-backend (Spring Boot 8080)      agent-server (Node 3002)
 | 发布公告 | ❌ | ✅ |
 | 知识库文档新增/删除 | ❌ | ✅ |
 
-固定账号：admin/123456（ADMIN）、zhangwei/123456（EMPLOYEE）、lina/123456（EMPLOYEE）。
+固定账号（密码均为 123456）：admin（陈昊，ADMIN）、zhangwei（张伟）、lina（李娜）。
 
-### 页面清单（前端）
+### 页面清单
+
 | 路由 | 页面 | 要点 |
 |---|---|---|
 | /login | 登录 | 账号密码，token 存 localStorage |
-| / | 工作台 Dashboard | 统计卡片 + 我的待办速览 + 待我审批速览 |
+| / | 工作台 Dashboard | 统计卡片 + AntV 数据概览柱状图 + 我的待办/审批速览 |
 | /todo | 待办任务 | 列表/筛选/新建/标记完成 |
 | /approval | 审批中心 | 三 Tab：我发起的/待我审批/发起申请 |
 | /announcement | 公告 | 列表/详情/置顶，ADMIN 发布 |
-| /directory | 通讯录 | 部门筛选 + 员工列表/详情 |
+| /directory | 通讯录 | 部门筛选 + 姓名搜索 + 员工详情 |
 | /knowledge | 知识库 | 文档列表/详情/新增/删除（ADMIN 管理） |
 
-## Java 后端（java-backend，Spring Boot 3.x）
+## agent-server 设计（Express 3002）
 
-目录（到包/类级别）：
+### 业务工具（19 个）
+
+- **只读（11 个，直接执行）**：get_workbench_stats / get_my_todos / get_my_approvals / get_pending_approvals / list_announcements / get_announcement_detail / list_departments / list_employees / get_employee_detail / list_knowledge_documents / search_knowledge（RAG 检索，不直接调业务后端）
+- **写操作（8 个，走确认协议）**：create_todo / complete_todo / create_approval / approve_approval / reject_approval / create_announcement / add_knowledge_document / delete_knowledge_document
+
+工具以 JSON Schema 声明参数约束注入模型，配合 System Prompt 引导按业务意图与角色权限选工具。
+
+### 推理循环（agent-loop）
+
+模型思考 → 工具决策 → 执行 → 结果回注 → 汇总回复；单轮支持多工具串行调用，8 步熔断防失控。流式响应中 tool_calls 为分片传输（arguments 增量字符串），按 index 累积拼接后统一解析。
+
+### 确认操作协议（Human-in-the-loop）
+
+状态机：`RUNNING → 拦截写工具 → 存 pendingConfirmation → 发 confirmation_request → 结束本轮 SSE →（POST /api/chat/confirm）→ 回填 tool_result → 续传 RUNNING → 最终答复 → done`
+
+确认接口：
+
 ```
-java-backend/
-├── pom.xml                                  # Spring Boot 3.2.x, JDK 17, 仅 starter-web + validation
-├── src/main/resources/application.yml       # server.port=8080
-└── src/main/java/com/oa/
-    ├── OaApplication.java
-    ├── common/        # ApiResponse / PageResult / BusinessException / GlobalExceptionHandler
-    ├── auth/          # AuthController / AuthService / TokenStore / AuthUser / AuthFilter / RequireRole / RoleInterceptor
-    ├── entity/        # Department/Employee/TodoTask/ApprovalRequest/Announcement/KnowledgeDocument + 枚举
-    ├── store/         # InMemoryDataStore（ConcurrentHashMap + 种子数据 + id 生成）
-    ├── controller/    # Department/Employee/Todo/Approval/Announcement/Knowledge/Dashboard Controller
-    └── service/       # 对应 Service（写操作含权限二次校验）
-```
-
-REST 端点（响应 `{code,message,data}`，分页 `{list,total,page,pageSize}`；除 login 外均需 Bearer token）：
-- POST /api/auth/login、GET /api/auth/me
-- GET /api/departments；GET /api/employees、GET /api/employees/{id}
-- GET /api/todos、POST /api/todos、PATCH /api/todos/{id}/complete
-- GET /api/approvals/mine、GET /api/approvals/pending（ADMIN）、POST /api/approvals、POST /api/approvals/{id}/approve、POST /api/approvals/{id}/reject
-- GET /api/announcements、GET /api/announcements/{id}、POST /api/announcements（ADMIN）
-- GET /api/knowledge、POST /api/knowledge（ADMIN）、DELETE /api/knowledge/{id}（ADMIN）
-- GET /api/dashboard/stats
-
-鉴权：TokenStore 内存（UUID token + 过期）；AuthFilter 解析 Bearer → 写 request attribute；RequireRole 注解 + RoleInterceptor 校验 ADMIN；写操作权限在 Service 层二次校验（最终安全屏障）。
-
-## agent-server 扩展（Node 3002）
-
-### 工具清单（约 16 个）
-读工具（直接执行）：get_workbench_stats / get_my_todos / get_my_approvals / get_pending_approvals / list_announcements / get_announcement_detail / list_departments / list_employees / get_employee_detail / list_knowledge_documents
-
-写工具（requiresConfirmation=true，走确认协议）：create_todo / complete_todo / create_approval / approve_approval / reject_approval / create_announcement / add_knowledge_document / delete_knowledge_document
-
-RAG 工具：search_knowledge（本地向量检索，不调 Java）
-
-### 用户确认操作协议（重点）
-状态机：`RUNNING → 拦截写工具 → 存 pendingConfirmation → 发 confirmation_request → 结束本轮 SSE → (POST /api/chat/confirm) → 回填 tool_result → 续传 RUNNING → 最终答复 → done`
-
-新增 SSE 事件：
-```
-confirmation_request  { sessionId, confirmId, toolName, operationType, title, summary, payload, severity }
-confirmation_result   { sessionId, confirmId, approved, rejectedReason }
+POST /api/chat/confirm   body { sessionId, confirmId, approved }
+响应：新 SSE 流（confirmation_result → tool_call/tool_result → message_delta... → done）
 ```
 
-新增接口：
-```
-POST /api/chat/confirm  body { sessionId, confirmId, approved }
-响应：新 SSE 流（confirmation_result → tool_call/tool_result → message_delta... → message_end → done）
-```
+写工具在推理循环中、执行 executor 前被拦截；pendingConfirmation 记录 assistant tool_call 消息 + 工具名/args/toolCallId；确认后调 executeTool（真正落库）或构造取消结果，追加 tool 消息后继续循环。会话历史保留未完成的 assistant tool_call 消息作为恢复上下文。
 
-实现要点：写工具在功能循环中、执行 executor 前被拦截；pendingConfirmation 存 assistant tool_call message + 工具名/args/toolCallId + expiresAt；confirm 校验后调 executeTool（真正落库）或构造取消结果，追加 tool 消息后继续循环。会话历史保留未完成的 assistant tool_call 消息作为恢复上下文。
+### SSE 事件协议（11 种）
+
+| 事件 | 说明 |
+|---|---|
+| session | 会话 ID 下发 |
+| message_start / message_delta / message_end | 助手回复流式输出 |
+| tool_call / tool_result | 工具决策与执行结果 |
+| log | 逐步骤执行日志（第 N 步、标题、详情、原始数据），驱动前端日志面板 |
+| confirmation_request / confirmation_result | 写操作确认请求（含 title/summary/payload/severity）与结果 |
+| error / done | 错误与结束 |
 
 ### 鉴权透传
-POST /api/chat 与 /api/chat/confirm 取 Bearer token → 调 Java GET /api/auth/me 校验并拿当前用户 → 绑定到底层；executeTool 每次透传 Bearer token 调 Java；写操作最终权限由 Java Service 判定（agent 不自行判角色）。
 
-### RAG 知识库（重点）
-- 文档 source of truth = Java 后端（KnowledgeDocument）；向量索引 = agent-server 内存
-- embedding 时机 = 导入时离线 embed；查询时仅 embed query
-- 避免重复构建 = contentHash 去重 + 文档级增量/删除级联 + `KNOWLEDGE_REBUILD_ON_START` 启动全量重建
-- 结构：chunker（分块）→ embedding（/embeddings）→ vector-index（余弦 top-k）→ search_knowledge → 文本块注入 prompt
+POST /api/chat 与 /api/chat/confirm 取 Bearer token → 调 backend GET /api/auth/me 校验并拿当前用户 → 绑定到会话；executeTool 每次透传 Bearer token 调 backend；写操作最终权限由 backend 判定（agent-server 不自行判角色），AI 操作权限与用户页面操作完全一致。
 
-目录：agent-server/src/{ index.ts / agent-loop.ts / session-store.ts / tools/{definitions,executor}.ts / rag/{embedding,chunker,vector-index,knowledge-sync}.ts / auth.ts }
+### RAG 知识库
 
-.env 关键变量：OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL(qwen-plus) / EMBEDDING_MODEL(text-embedding-v3) / PLATFORM_API_BASE(http://localhost:8080) / PORT=3002 / KNOWLEDGE_TOP_K / KNOWLEDGE_REBUILD_ON_START
+- 文档 source of truth = backend（KnowledgeDocument），向量索引 = agent-server 内存
+- 同步策略为**懒同步**：首次检索前全量同步一次；新增/删除文档的写操作后将索引标记失效，下次检索前再同步
+- 增量更新按 contentHash（md5）：内容未变的文档跳过重新向量化，后端已删除的文档级联移出索引
+- 链路：chunker（分块）→ embedding（/embeddings）→ vector-index（余弦 TopK）→ search_knowledge 工具 → 文本块注入 Prompt
 
-## agent-sdk 扩展（React SDK）
-组件：index / context.tsx（AgentProvider + getAuthHeaders + 事件分发）/ sse-client.ts（streamChat + confirmChat）/ FloatingAssistant（悬浮球+蓝点）/ ChatPanel / ConfirmDialog / types.ts
+### 文件结构与环境变量
+
+```
+agent-server/src/
+  index.ts        # 路由：/api/chat、/api/chat/confirm、/api/health
+  agent-loop.ts   # toolcall 多步推理循环 + 确认协议状态机
+  session.ts      # 会话存储与 pendingConfirmation
+  sse.ts          # SSE 事件封装
+  auth.ts         # token 解析与用户校验
+  prompts.ts      # System Prompt
+  config.ts       # 环境变量
+  tools/          # definitions.ts（19 工具 JSON Schema）+ executor.ts（透传执行）
+  rag/            # chunker / embedding / vector-index / knowledge-sync
+```
+
+| 环境变量（.env） | 默认 | 说明 |
+|---|---|---|
+| OPENAI_BASE_URL | 阿里云百炼兼容模式端点 | OpenAI 兼容协议，可切换智谱/DeepSeek |
+| OPENAI_API_KEY | - | 必填，大模型密钥 |
+| OPENAI_MODEL | qwen-plus | 对话模型 |
+| EMBEDDING_MODEL | text-embedding-v3 | RAG 向量化模型 |
+| PORT | 3002 | 服务端口 |
+| PLATFORM_API_BASE | http://localhost:8080 | 业务后端地址 |
+| KNOWLEDGE_TOP_K | 4 | RAG 检索返回文本块数量 |
+
+## agent-sdk 设计（React SDK）
+
+组件结构：index / context.tsx（AgentProvider + getAuthHeaders + 事件分发）/ sse-client.ts（streamChat + confirmChat）/ FloatingAssistant（悬浮球 + 未读角标）/ ChatPanel（对话视图与日志视图切换）/ ConfirmDialog / types.ts
 
 对外 API：
+
 ```tsx
 <AgentProvider url={AGENT_SERVER_URL} getAuthHeaders={() => ({ Authorization: `Bearer ${token}` })}>
   <FloatingAssistant />
 </AgentProvider>
 ```
-context 值：open/close/toggle、sendMessage、sessions、unreadCount（蓝点）、pendingConfirmation、confirm(approved)
 
-确认框：收到 confirmation_request → 置 pendingConfirmation → 渲染 ConfirmDialog（含 title/summary/payload，severity=DANGEROUS 红标）→ 确认/取消调 confirm；蓝点 = 面板关闭时新增事件计数（含 confirmation_request）。
+context 能力：open/close/toggle、sendMessage、消息流、unreadCount（未读角标）、pendingConfirmation、confirm(approved)、logs（执行日志）。
 
-## web 前端结构
+确认框：收到 confirmation_request → 渲染 ConfirmDialog（含 title/summary/payload，dangerous 红标）→ 确认/取消调 confirm。
+
+日志面板：渲染 SSE log 事件，逐步展示"第 N 步做了什么任务、决策了什么工具、返回了什么信息"，支持展开原始 JSON；done 事件时将最终回复打印到浏览器控制台。
+
+## web 前端设计
+
 ```
-web/src/ main.tsx / App.tsx（路由+登录守卫）/ constants.ts / api.ts（统一附 token）
+web/src/ main.tsx（ConfigProvider 主题 + 中文 locale）/ App.tsx（路由 + 登录守卫）/ constants.ts / api.ts（统一附 token）
  ├── auth/ AuthContext（token 存取、user、login/logout）
- ├── components/ Layout（侧边导航+顶栏，内嵌 FloatingAssistant）
+ ├── components/ Layout（antd Sider + Menu + 顶栏，内嵌 FloatingAssistant）/ DataTable / StatCard
  └── pages/ Login / Dashboard / Todo / Approval / Announcement / Directory / Knowledge
 ```
-UI：白底浅蓝主题，无 emoji，注释中文 UTF-8。
+
+- UI 基于 Ant Design v6（ConfigProvider 统一主题色 #1677ff）+ AntV 图表；无 emoji，注释中文 UTF-8
+- 后端地址：开发环境直连 localhost:8080 / localhost:3002；生产构建由 .env.production 置空走同源 nginx 反代
 
 ## 端口与启动
+
 | 服务 | 端口 | 启动 |
 |---|---|---|
-| java-backend | 8080 | mvn spring-boot:run |
+| backend | 8080 | npm run dev -w backend |
 | agent-server | 3002 | npm run dev -w agent-server |
-| web | 5173 | npm run dev -w web（vite server.port 固定） |
+| web | 5173 | npm run dev -w web |
 | agent-sdk | 无 | 源码引用 |
 
-根 package.json（workspaces: web/agent-server/agent-sdk）scripts：
-```jsonc
-"dev": "concurrently -n java,agent,web \"npm run dev:java\" \"npm run dev:agent\" \"npm run dev:web\"",
-"dev:java": "cd java-backend && mvn spring-boot:run",
+根 package.json（workspaces: web / backend / agent-server / agent-sdk）一键启动：
+
+```bash
+npm install
+cp agent-server/.env.example agent-server/.env   # 填入 OPENAI_API_KEY
+npm run dev    # concurrently 并行拉起 backend / agent / web
 ```
-（Java 为 Maven、Node 为 npm，不能同进 workspace，用 concurrently 编排；启动说明并入本 plan，不单写 md）
 
-## 实施步骤（依赖驱动）
-1. 清空现有 food_shop 代码（保留 .git / .env 结构，重写四包）
-2. java-backend：pom + 启动类 + common + store 种子数据 + entity + 鉴权 + 全部 Controller/Service；curl 验证登录/只读/写/权限
-3. agent-server 只读链路：改写 tools 为 OA 只读工具 + 鉴权透传；跑通 SSE 全链路
-4. agent-server 确认协议：requiresConfirmation 拦截 + 状态机 + /api/chat/confirm 续传
-5. agent-sdk：getAuthHeaders + ConfirmDialog + 蓝点 + confirmChat
-6. agent-server RAG：embedding/chunker/vector-index/knowledge-sync/search_knowledge + prompt 注入 + 写工具联动建删索引
-7. web 前端：auth + Login + Layout + 6 页面 + SDK 接入
-8. 根目录编排 + 联调 + 端到端验证
+要求 Node 20+（本机用 `export PATH=/Users/test/.nvm/versions/node/v20.20.2/bin:$PATH` 切换）。
 
-## 验证标准（跑通定义）
-1. 编排启动 8080/3002/5173；无 token 调 /api/auth/me 返回 401
-2. admin/123456 登录 → 进入工作台，数据来自 Java
-3. 7 个页面渲染，数据与 Java 内存种子一致
-4. 只读链路：带 token 问「我的待办有哪些」→ SSE 事件序列完整（session→message_start→tool_call→tool_result→message_delta...→message_end→done）
+## 生产部署
+
+- 前端构建：`npm run build -w web`（产物 web/dist，同源模式）
+- 进程守护：根目录 ecosystem.config.js（pm2 双进程：oa-backend:8080 + oa-agent-server:3002）
+- 反向代理：deploy/nginx.conf，/api/chat(/confirm) → 3002（SSE 关闭缓冲），其余 /api/* → 8080，前端静态托管 + SPA 回退
+
+## 验证清单
+
+1. `npm run dev` 一键拉起 8080/3002/5173；无 token 调 /api/auth/me 返回 401
+2. admin/123456 登录 → 进入工作台，统计卡片与 AntV 图表渲染，数据来自 backend
+3. 7 个页面渲染正常，数据与内存种子一致
+4. 只读链路：带 token 问「我的待办有哪些」→ SSE 事件序列完整（session → log → tool_call → tool_result → message_delta... → message_end → done），日志面板逐步可见
 5. 鉴权：zhangwei（EMPLOYEE）问「帮我审批第一条申请」→ 返回 403 语义，不越权
-6. 确认写闭环：admin 说「帮我新建待办：明天提交周报」→ confirmation_request → 确认框 → 点确认 → 真落库 → 待办页可见 → 流式答复
-7. 取消写闭环：点取消 → 不落库 → LLM 答复「已取消」
-8. 审批闭环：admin 发起报销 → 确认协议真正通过/驳回 → 状态变化
-9. RAG：新增文档（如考勤制度）→ 提问命中并注入语义；重启后 KNOWLEDGE_REBUILD_ON_START 重建仍可检索
-10. 硬约束：注释中文 UTF-8、无 emoji、白底浅蓝 UI、无测试脚本/额外 md
-
-## 环境前置条件（执行时先校验）
-- JDK 17+ 与 Maven（`java -version`、`mvn -v`），本机需确认已安装，缺则说明
-- Node 需 v20（本机默认 v16，用 nvm 切换 `export PATH=/Users/test/.nvm/versions/node/v20.20.2/bin:$PATH`）
-- 大模型/embedding 用阿里云百炼兼容协议（.env 配置，key 复用环境已有 DashScope key）
+6. 确认写闭环：admin 说「帮我新建待办：明天提交周报」→ 弹确认卡片 → 点确认 → 真落库 → 待办页可见 → 流式答复；点取消则不落库
+7. 审批闭环：admin 发起报销 → 确认协议真正通过/驳回 → 状态变化
+8. RAG：新增知识库文档（如考勤制度）→ 提问命中并注入语义回答；删除后不再命中
+9. 硬约束：注释中文 UTF-8、无 emoji、Ant Design 统一 UI
