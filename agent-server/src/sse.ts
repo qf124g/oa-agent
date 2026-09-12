@@ -12,6 +12,7 @@ export interface SSEEvent {
     | 'log'
     | 'confirmation_request'
     | 'confirmation_result'
+    | 'notify'
     | 'error'
     | 'done';
   [key: string]: unknown;

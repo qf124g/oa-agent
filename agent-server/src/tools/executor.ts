@@ -81,6 +81,8 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${ctx.token}`,
+        // 标记来源为助手代办：后端领域事件据此避免「助手代办 → 又回推助手」的自循环
+        'X-Source': 'agent',
       },
       body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
       signal: AbortSignal.timeout(10000),

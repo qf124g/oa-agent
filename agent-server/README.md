@@ -48,6 +48,8 @@
 | GET | /api/health | 健康检查 |
 | POST | /api/chat | 发起对话（SSE 流式返回） |
 | POST | /api/chat/confirm | 写操作确认/取消后续传（SSE 流式返回） |
+| GET | /api/agent/events | 助手主动推送通道（常驻 SSE，Bearer 鉴权，心跳保活，离线消息补发） |
+| POST | /internal/events | 领域事件上报（backend 内部回调，X-Internal-Secret 共享密钥鉴权） |
 
 ## 配置
 

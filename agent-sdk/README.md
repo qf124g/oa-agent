@@ -42,14 +42,16 @@ function App() {
 - **工具调用可视化**：对话流中内联展示工具名称、参数与执行结果
 - **鉴权透传**：`getAuthHeaders` 回调注入业务系统 token，agent-server 透传至业务后端完成权限校验
 - **未读提醒**：面板关闭时收到回复显示未读角标
+- **助手主动推送**：网页上的业务操作（如新建待办）触发领域事件，助手在消息流中推送模板消息（带「提醒」标记）与快捷操作按钮，点击按钮代发预置指令进入正常 agent 循环
 - **主题变量**：颜色不做硬编码，全部引用宿主应用 global.css `:root` 中的 `--color-*` / `--shadow-*` CSS 变量（见 web/src/styles/global.css），接入方需定义同名变量
 
 ## 对接协议
 
-SDK 通过两个 SSE 端点与 agent-server 通信：
+SDK 通过两个 SSE 端点与 agent-server 通信，另维护一条常驻事件通道接收主动推送：
 
 - `POST {url}/api/chat`：发起对话，body 含 sessionId 与用户消息
 - `POST {url}/api/chat/confirm`：确认/取消写操作，body 含 sessionId、confirmId、approved
+- `GET {url}/api/agent/events`：常驻事件通道，接收业务事件触发的助手主动推送（模板消息 + 快捷操作按钮），断线指数退避自动重连
 
 事件协议详见 [agent-server README](../agent-server/README.md)。
 

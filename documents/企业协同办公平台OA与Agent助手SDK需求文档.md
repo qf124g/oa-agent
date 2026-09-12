@@ -153,10 +153,25 @@ agent-server/src/
 | PORT | 3002 | 服务端口 |
 | PLATFORM_API_BASE | http://localhost:8080 | 业务后端地址 |
 | KNOWLEDGE_TOP_K | 4 | RAG 检索返回文本块数量 |
+| INTERNAL_SECRET | dev-internal-secret | 领域事件内部回调密钥（与 backend 保持一致） |
+
+## 助手主动触达（业务事件推送，P1）
+
+用户在网页上完成业务操作后，助手主动推送一条消息到会话面板，用户可点快捷按钮让助手代办后续流程，避免在页面间逐个跳转。
+
+链路：`web 页面操作 → backend 落库 → 同步回调 agent-server（POST /internal/events，X-Internal-Secret 共享密钥鉴权）→ 领域事件转模板消息 → 常驻事件通道 SSE 推送 → SDK 注入消息流 + 未读角标 → 用户点快捷按钮代发预置指令 → 进入正常 agent 循环（写操作仍走确认卡片）`
+
+要点：
+
+- 事件通道：`GET /api/agent/events` 常驻 SSE 连接（Bearer 鉴权、25s 心跳保活、断线指数退避重连）；同一用户多标签页全部推送
+- 离线收件箱：用户无在线连接时按用户暂存（上限 20 条），连接建立后补发
+- 防自循环：事件带 source 字段（web / agent），agent-server 工具调用统一带 `X-Source: agent` 头，助手代办触发的业务事件不再回推
+- 推送形态：模板消息（标题 + 文案 + 快捷操作按钮），零 token 成本、确定性强；LLM 个性化建议作为后续增强
+- P1 事件：`todo.created`（优先级/截止日期入文案，快捷操作：补充描述、查看我的待办）；后续扩展 employee.created / approval.submitted / approval.decided 等
 
 ## agent-sdk 设计（React SDK）
 
-组件结构：index / context.tsx（AgentProvider + getAuthHeaders + 事件分发）/ sse-client.ts（streamChat + confirmChat）/ FloatingAssistant（悬浮球 + 未读角标）/ ChatPanel（对话视图与日志视图切换）/ ConfirmCard（内联确认卡片） / types.ts
+组件结构：index / context.tsx（AgentProvider + getAuthHeaders + 事件分发 + 常驻事件连接）/ sse-client.ts（streamChat + confirmChat + connectEvents）/ FloatingAssistant（悬浮球 + 未读角标）/ ChatPanel（对话视图与日志视图切换、推送消息与快捷按钮渲染）/ ConfirmCard（内联确认卡片） / types.ts
 
 对外 API：
 

@@ -1,6 +1,6 @@
-import React, { createContext, useCallback, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatItem, ConfirmationRequest, LogEntry, SSEEvent } from './types';
-import { streamChat, confirmChat } from './sse-client';
+import { streamChat, confirmChat, connectEvents } from './sse-client';
 
 // 通过 context 暴露给子组件的 agent 会话能力
 export interface AgentContextValue {
@@ -50,6 +50,9 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
   const abortRef = useRef<AbortController | null>(null);
   const openRef = useRef(false);
   const finalContentRef = useRef('');
+  // 鉴权头回调可能是不稳定的内联函数，用 ref 读取避免事件通道反复重连
+  const getAuthHeadersRef = useRef(getAuthHeaders);
+  getAuthHeadersRef.current = getAuthHeaders;
 
   // 展开/收起面板：展开时清零蓝点
   const setPanelOpen = useCallback((value: boolean) => {
@@ -61,6 +64,33 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
   const openPanel = useCallback(() => setPanelOpen(true), [setPanelOpen]);
   const closePanel = useCallback(() => setPanelOpen(false), [setPanelOpen]);
   const togglePanel = useCallback(() => setPanelOpen(!openRef.current), [setPanelOpen]);
+
+  // 常驻事件通道：接收服务端主动推送（业务事件提醒），注入消息流并累计未读
+  useEffect(() => {
+    const controller = new AbortController();
+    void connectEvents({
+      url,
+      getHeaders: () => getAuthHeadersRef.current?.(),
+      onNotify: (n) => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: createId(),
+            kind: 'message',
+            role: 'assistant',
+            content: n.content,
+            toolCalls: [],
+            notify: true,
+            actions: n.actions,
+            createdAt: n.createdAt,
+          },
+        ]);
+        if (!openRef.current) setUnreadCount((c) => c + 1);
+      },
+      signal: controller.signal,
+    });
+    return () => controller.abort();
+  }, [url]);
 
   // SSE 事件归约：把服务端事件流映射为消息视图与确认状态的更新
   const handleEvent = useCallback((event: SSEEvent) => {

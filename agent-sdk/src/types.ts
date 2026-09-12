@@ -7,6 +7,12 @@ export interface ToolCallView {
   result?: unknown;
 }
 
+// 快捷操作：推送消息上的按钮，点击后代发预置指令进入正常 agent 循环
+export interface QuickAction {
+  label: string;
+  sendText: string;
+}
+
 // 聊天消息视图模型
 export interface AgentMessage {
   id: string;
@@ -14,6 +20,17 @@ export interface AgentMessage {
   role: 'user' | 'assistant';
   content: string;
   toolCalls: ToolCallView[];
+  createdAt: number;
+  notify?: boolean; // 助手主动推送标记（业务事件触发）
+  actions?: QuickAction[]; // 推送消息携带的快捷操作
+}
+
+// 助手主动推送（事件通道 GET /api/agent/events 的 notify 帧）
+export interface AgentNotification {
+  id: string;
+  title: string;
+  content: string;
+  actions: QuickAction[];
   createdAt: number;
 }
 

@@ -7,6 +7,8 @@ import { runAgentLoop, resumeAfterConfirmation } from './agent-loop';
 import { writeSSE } from './sse';
 import { getOrCreateSession, getSession } from './session';
 import { extractToken, resolveUser } from './auth';
+import { registerEventConnection, handleDomainEvent } from './events';
+import type { DomainEvent } from './events';
 
 // 启动时校验大模型 API Key，缺失则快速失败并给出中文提示
 if (!config.openaiApiKey) {
@@ -21,6 +23,37 @@ app.use(express.json());
 // 健康检查
 app.get('/api/health', (_req, res) => {
   res.json({ code: 0, message: 'ok', data: { status: 'up' } });
+});
+
+// 助手主动推送通道：常驻 SSE 连接，业务事件触发时向用户推送模板消息
+app.get('/api/agent/events', async (req, res) => {
+  const token = extractToken(req.headers.authorization);
+  const user = token ? await resolveUser(token) : null;
+  if (!user) {
+    res.status(401).json({ code: 401, message: '未登录或令牌已失效', data: null });
+    return;
+  }
+  initSSE(res);
+  const unregister = registerEventConnection(user.userId, res);
+  console.log(`[agent-server][events] 用户 ${user.name} 建立事件连接`);
+  // 心跳保活，防止代理/网关空闲断连（冒号注释帧，客户端解析时自动忽略）
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded && !res.destroyed) res.write(': ping\n\n');
+  }, 25000);
+  res.on('close', () => {
+    clearInterval(heartbeat);
+    unregister();
+  });
+});
+
+// 领域事件上报：backend 内部回调，共享密钥鉴权，不对外暴露
+app.post('/internal/events', (req, res) => {
+  if (req.headers['x-internal-secret'] !== config.internalSecret) {
+    res.status(403).json({ code: 403, message: '无效的内部密钥', data: null });
+    return;
+  }
+  handleDomainEvent(req.body as DomainEvent);
+  res.json({ code: 0, message: 'ok', data: null });
 });
 
 // 设置 SSE 响应头

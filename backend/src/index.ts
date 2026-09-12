@@ -4,6 +4,7 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { BusinessError, ok, fail, paginate, asInt, str, plusDays } from './common';
 import { store } from './store';
 import { tokenStore } from './auth';
+import { emitDomainEvent } from './notify';
 import type {
   ApprovalRequest,
   AuthUser,
@@ -142,6 +143,13 @@ app.post('/api/todos', (req, res) => {
   };
   store.todos.set(t.id, t);
   res.json(ok(t));
+  // 领域事件：通知助手主动触达创建人（通过助手代办的标记 agent 来源，不回推）
+  emitDomainEvent({
+    type: 'todo.created',
+    actorId: user.userId,
+    source: req.headers['x-source'] === 'agent' ? 'agent' : 'web',
+    data: { id: t.id, title: t.title, priority: t.priority, dueDate: t.dueDate },
+  });
 });
 
 app.patch('/api/todos/:id/complete', (req, res) => {

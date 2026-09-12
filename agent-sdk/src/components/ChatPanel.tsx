@@ -78,7 +78,27 @@ export function ChatPanel(props: ChatPanelProps) {
                 <div key={item.id} className={`agent-chat-msg agent-chat-msg-${item.role}`}>
                   {item.role === 'assistant' &&
                     item.toolCalls.map((tc) => <ToolCallBlock key={tc.toolCallId} toolCall={tc} />)}
-                  {item.content ? <div className="agent-chat-bubble">{item.content}</div> : null}
+                  {item.content ? (
+                    <div className="agent-chat-bubble">
+                      {item.notify && <span className="agent-chat-notify-tag">提醒</span>}
+                      {item.content}
+                    </div>
+                  ) : null}
+                  {item.actions && item.actions.length > 0 && (
+                    <div className="agent-chat-actions">
+                      {item.actions.map((a) => (
+                        <button
+                          key={a.label}
+                          type="button"
+                          className="agent-chat-action-btn"
+                          disabled={isStreaming}
+                          onClick={() => sendMessage(a.sendText)}
+                        >
+                          {a.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {item.role === 'assistant' && isStreaming && !item.content && item.toolCalls.length === 0 && (
                     <div className="agent-chat-typing">思考中...</div>
                   )}
