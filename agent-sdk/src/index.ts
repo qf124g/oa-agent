@@ -6,5 +6,5 @@ export { FloatingAssistant } from './components/FloatingAssistant';
 export type { FloatingAssistantProps } from './components/FloatingAssistant';
 export { ChatPanel } from './components/ChatPanel';
 export type { ChatPanelProps } from './components/ChatPanel';
-export { ConfirmDialog } from './components/ConfirmDialog';
-export type { AgentMessage, ToolCallView, ConfirmationRequest, SSEEvent, AuthHeaders } from './types';
+export { ConfirmCard } from './components/ConfirmCard';
+export type { AgentMessage, ChatItem, ConfirmationItem, ToolCallView, ConfirmationRequest, SSEEvent, AuthHeaders } from './types';

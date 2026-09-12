@@ -88,7 +88,7 @@ backend (Express 8080)               agent-server (Express 3002)
 
 ### 确认操作协议（Human-in-the-loop）
 
-状态机：`RUNNING → 拦截写工具 → 存 pendingConfirmation → 发 confirmation_request → 结束本轮 SSE →（POST /api/chat/confirm）→ 回填 tool_result → 续传 RUNNING → 最终答复 → done`
+状态机：`RUNNING → 拦截写工具 → 存 pendingConfirmation → 发 confirmation_request → 结束本轮 SSE →（前端消息流推入确认卡片，用户在卡片上确认/取消）→ POST /api/chat/confirm → 回填 tool_result → 续传 RUNNING → 最终答复 → done`
 
 确认接口：
 
@@ -97,7 +97,15 @@ POST /api/chat/confirm   body { sessionId, confirmId, approved }
 响应：新 SSE 流（confirmation_result → tool_call/tool_result → message_delta... → done）
 ```
 
-写工具在推理循环中、执行 executor 前被拦截；pendingConfirmation 记录 assistant tool_call 消息 + 工具名/args/toolCallId；确认后调 executeTool（真正落库）或构造取消结果，追加 tool 消息后继续循环。会话历史保留未完成的 assistant tool_call 消息作为恢复上下文。
+服务端：写工具在推理循环中、执行 executor 前被拦截；pendingConfirmation 记录 assistant tool_call 消息 + 工具名/args/toolCallId，confirmId 一次性消费且 5 分钟过期；确认后调 executeTool（真正落库）或构造取消结果，追加 tool 消息后继续循环。会话历史保留未完成的 assistant tool_call 消息作为恢复上下文。
+
+前端（卡片式确认，非弹窗）：
+
+1. SDK 收到 confirmation_request 后，将一张确认卡片（ConfirmationItem，status=pending）**推入消息流**，与对话消息、工具调用块按时间顺序混排
+2. 卡片内容：操作徽标（normal 蓝标 / dangerous 红标）+ 操作标题 + 人类可读摘要（由服务端 WRITE_TOOL_META 的 summaryFields 拼装）+ 可折叠的操作参数 JSON + 「取消 / 确认执行」按钮
+3. 用户点击后按钮进入禁用态（防重复提交），SDK 调 POST /api/chat/confirm 续传
+4. 收到 confirmation_result 后卡片按 confirmId **定格为「已确认」（绿标）/「已取消」（灰标）**，不再消失，作为会话记录保留——回溯对话时能看清当时确认了什么操作
+5. 一个会话同一时刻至多一张待确认卡片（服务端单 pendingConfirmation 约束）；清空会话（新会话）时卡片随消息流一并清除
 
 ### SSE 事件协议（11 种）
 
@@ -148,7 +156,7 @@ agent-server/src/
 
 ## agent-sdk 设计（React SDK）
 
-组件结构：index / context.tsx（AgentProvider + getAuthHeaders + 事件分发）/ sse-client.ts（streamChat + confirmChat）/ FloatingAssistant（悬浮球 + 未读角标）/ ChatPanel（对话视图与日志视图切换）/ ConfirmDialog / types.ts
+组件结构：index / context.tsx（AgentProvider + getAuthHeaders + 事件分发）/ sse-client.ts（streamChat + confirmChat）/ FloatingAssistant（悬浮球 + 未读角标）/ ChatPanel（对话视图与日志视图切换）/ ConfirmCard（内联确认卡片） / types.ts
 
 对外 API：
 
@@ -158,9 +166,9 @@ agent-server/src/
 </AgentProvider>
 ```
 
-context 能力：open/close/toggle、sendMessage、消息流、unreadCount（未读角标）、pendingConfirmation、confirm(approved)、logs（执行日志）。
+context 能力：open/close/toggle、sendMessage、消息流（ChatItem = 普通消息 AgentMessage | 确认卡片 ConfirmationItem）、unreadCount（未读角标）、pendingConfirmation、confirm(approved)、logs（执行日志）。
 
-确认框：收到 confirmation_request → 渲染 ConfirmDialog（含 title/summary/payload，dangerous 红标）→ 确认/取消调 confirm。
+确认卡片（ConfirmCard）：消息流中的一等条目。confirmation_request 事件到达时在消息流尾部插入 pending 态卡片（含 title/summary/可折叠 payload，dangerous 红标）；用户在卡片上点「确认执行/取消」调 confirm；confirmation_result 事件按 confirmId 将卡片定格为已确认（绿标）/已取消（灰标），按钮区随之隐藏，卡片永久保留在会话记录中。
 
 日志面板：渲染 SSE log 事件，逐步展示"第 N 步做了什么任务、决策了什么工具、返回了什么信息"，支持展开原始 JSON；done 事件时将最终回复打印到浏览器控制台。
 
@@ -208,7 +216,7 @@ npm run dev    # concurrently 并行拉起 backend / agent / web
 3. 7 个页面渲染正常，数据与内存种子一致
 4. 只读链路：带 token 问「我的待办有哪些」→ SSE 事件序列完整（session → log → tool_call → tool_result → message_delta... → message_end → done），日志面板逐步可见
 5. 鉴权：zhangwei（EMPLOYEE）问「帮我审批第一条申请」→ 返回 403 语义，不越权
-6. 确认写闭环：admin 说「帮我新建待办：明天提交周报」→ 弹确认卡片 → 点确认 → 真落库 → 待办页可见 → 流式答复；点取消则不落库
+6. 确认写闭环：admin 说「帮我新建待办：明天提交周报」→ 消息流推入确认卡片 → 点确认 → 真落库 → 待办页可见 → 流式答复，卡片定格为「已确认」；点取消则不落库，卡片定格为「已取消」
 7. 审批闭环：admin 发起报销 → 确认协议真正通过/驳回 → 状态变化
 8. RAG：新增知识库文档（如考勤制度）→ 提问命中并注入语义回答；删除后不再命中
 9. 硬约束：注释中文 UTF-8、无 emoji、Ant Design 统一 UI

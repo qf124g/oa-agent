@@ -1,4 +1,51 @@
 /* 全局基础样式：白色背景 + 浅蓝主题，组件样式由 antd 统一提供 */
+/* 设计变量：全项目唯一颜色来源，agent-sdk 的 agent-chat.css 同样引用此处变量 */
+
+:root {
+  /* 品牌主色（与 antd ConfigProvider 的 token.colorPrimary 保持一致） */
+  --color-primary: #1677ff;
+  --color-primary-hover: #4096ff;
+  --color-primary-disabled: #a8c7fa;
+  --color-primary-bg: #e6f4ff; /* 主色浅底（徽标/hover） */
+  --color-primary-bg-hover: #f0f7ff; /* 极浅 hover 底 */
+  --color-primary-bg-soft: #fbfdff; /* 面板内容底 */
+  --color-primary-border: #91caff; /* 主色描边 */
+  --color-primary-border-soft: #d6e9ff; /* 次级描边/分隔线 */
+  --color-primary-border-hover: #bae0ff; /* 按钮描边 */
+  --color-primary-border-light: #e6f0fb; /* 极浅描边 */
+
+  /* 危险色 */
+  --color-danger: #cf1322;
+  --color-danger-strong: #ff4d4f;
+  --color-danger-bg: #fff2f0;
+  --color-danger-border: #ffccc7;
+
+  /* 成功色 */
+  --color-success: #52c41a;
+  --color-success-strong: #389e0d;
+  --color-success-bg: #f6ffed;
+  --color-success-border: #b7eb8f;
+
+  /* 文本色 */
+  --color-text: #1f2329;
+  --color-text-secondary: #4e5969;
+  --color-text-tertiary: #86909c;
+  --color-text-inverse: #fff; /* 主色底上的反白文字 */
+
+  /* 中性色/背景 */
+  --color-bg: #f5f7fa;
+  --color-bg-container: #fff;
+  --color-bg-soft: #f7f8fa;
+  --color-border: #f0f0f0;
+  --color-border-strong: #e5e6eb;
+
+  /* 阴影 */
+  --shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.14);
+  --shadow-primary: 0 2px 8px rgba(22, 119, 255, 0.08);
+  --shadow-danger: 0 2px 8px rgba(207, 19, 34, 0.08);
+  --shadow-fab: 0 6px 20px rgba(22, 119, 255, 0.4);
+  --shadow-fab-hover: 0 8px 24px rgba(22, 119, 255, 0.5);
+}
 
 * {
   box-sizing: border-box;
@@ -14,8 +61,8 @@ body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   font-size: 14px;
-  color: #1f2329;
-  background: #f5f7fa;
+  color: var(--color-text);
+  background: var(--color-bg);
 }
 
 /* 侧边栏品牌区 */
@@ -26,9 +73,9 @@ body {
   justify-content: center;
   font-size: 16px;
   font-weight: 700;
-  color: #1677ff;
+  color: var(--color-primary);
   letter-spacing: 1px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 /* 登录页 */
@@ -37,19 +84,19 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #e6f4ff 0%, #f5f7fa 100%);
+  background: linear-gradient(135deg, var(--color-primary-bg) 0%, var(--color-bg) 100%);
 }
 
 /* 只读内容块（公告/文档/审批详情） */
 .pre-wrap {
   white-space: pre-wrap;
   word-break: break-word;
-  background: #f5f7fa;
-  border: 1px solid #f0f0f0;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 12px;
   font-size: 13px;
-  color: #1f2329;
+  color: var(--color-text);
   line-height: 1.7;
   max-height: 320px;
   overflow-y: auto;

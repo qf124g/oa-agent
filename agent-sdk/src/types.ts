@@ -10,11 +10,29 @@ export interface ToolCallView {
 // 聊天消息视图模型
 export interface AgentMessage {
   id: string;
+  kind: 'message';
   role: 'user' | 'assistant';
   content: string;
   toolCalls: ToolCallView[];
   createdAt: number;
 }
+
+// 消息流中的写操作确认卡片：confirmation_request 事件推入，confirmation_result 事件定格状态
+export interface ConfirmationItem {
+  id: string;
+  kind: 'confirmation';
+  confirmId: string;
+  toolName: string;
+  title: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  severity: 'normal' | 'high' | 'dangerous';
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: number;
+}
+
+// 消息流条目：普通消息或确认卡片
+export type ChatItem = AgentMessage | ConfirmationItem;
 
 // 待确认的写操作（由 confirmation_request 事件驱动）
 export interface ConfirmationRequest {

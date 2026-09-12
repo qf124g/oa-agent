@@ -1,10 +1,10 @@
 import React, { createContext, useCallback, useMemo, useRef, useState } from 'react';
-import type { AgentMessage, ConfirmationRequest, LogEntry, SSEEvent } from './types';
+import type { ChatItem, ConfirmationRequest, LogEntry, SSEEvent } from './types';
 import { streamChat, confirmChat } from './sse-client';
 
 // 通过 context 暴露给子组件的 agent 会话能力
 export interface AgentContextValue {
-  messages: AgentMessage[]; // 含工具调用过程的完整消息视图
+  messages: ChatItem[]; // 含工具调用过程与确认卡片的完整消息视图
   logs: LogEntry[]; // 服务端逐步执行日志
   isStreaming: boolean; // 一次 sendMessage / confirm 请求进行中
   sessionId: string; // 当前会话 ID（服务端多轮上下文的标识）
@@ -38,7 +38,7 @@ function createId(): string {
 
 // Agent 助手全局 Provider：接入时包裹在应用外层
 export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderProps) {
-  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [messages, setMessages] = useState<ChatItem[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessionId, setSessionId] = useState<string>(createId);
@@ -64,6 +64,7 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
 
   // SSE 事件归约：把服务端事件流映射为消息视图与确认状态的更新
   const handleEvent = useCallback((event: SSEEvent) => {
+    console.log('Received event:', event);
     if (event.type === 'session') {
       setSessionId(event.sessionId);
       return;
@@ -89,11 +90,35 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
         payload: event.payload,
         severity: event.severity,
       });
+      // 确认卡片推入消息流，等待用户在卡片上确认/取消
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: createId(),
+          kind: 'confirmation',
+          confirmId: event.confirmId,
+          toolName: event.toolName,
+          title: event.title,
+          summary: event.summary,
+          payload: event.payload,
+          severity: event.severity,
+          status: 'pending',
+          createdAt: Date.now(),
+        },
+      ]);
       if (!openRef.current) setUnreadCount((c) => c + 1);
       return;
     }
     if (event.type === 'confirmation_result') {
       setPendingConfirmation(null);
+      // 定格确认卡片状态为已确认/已取消
+      setMessages((prev) =>
+        prev.map((item) =>
+          item.kind === 'confirmation' && item.confirmId === event.confirmId
+            ? { ...item, status: event.approved ? 'approved' : 'rejected' }
+            : item
+        )
+      );
       return;
     }
     if (event.type === 'message_start') {
@@ -112,13 +137,13 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
         case 'message_start':
           return [
             ...prev,
-            { id: createId(), role: 'assistant', content: '', toolCalls: [], createdAt: Date.now() },
+            { id: createId(), kind: 'message', role: 'assistant', content: '', toolCalls: [], createdAt: Date.now() },
           ];
         // 文本增量追加到最后一条助手消息
         case 'message_delta': {
           if (prev.length === 0) return prev;
           const last = prev[prev.length - 1];
-          if (last.role !== 'assistant') return prev;
+          if (last.kind !== 'message' || last.role !== 'assistant') return prev;
           const next = [...prev];
           next[next.length - 1] = { ...last, content: last.content + event.content };
           return next;
@@ -127,7 +152,7 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
         case 'tool_call': {
           if (prev.length === 0) return prev;
           const last = prev[prev.length - 1];
-          if (last.role !== 'assistant') return prev;
+          if (last.kind !== 'message' || last.role !== 'assistant') return prev;
           const next = [...prev];
           next[next.length - 1] = {
             ...last,
@@ -142,7 +167,7 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
         case 'tool_result': {
           if (prev.length === 0) return prev;
           const last = prev[prev.length - 1];
-          if (last.role !== 'assistant') return prev;
+          if (last.kind !== 'message' || last.role !== 'assistant') return prev;
           const next = [...prev];
           next[next.length - 1] = {
             ...last,
@@ -168,7 +193,7 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
       setError(null);
       setMessages((prev) => [
         ...prev,
-        { id: createId(), role: 'user', content: trimmed, toolCalls: [], createdAt: Date.now() },
+        { id: createId(), kind: 'message', role: 'user', content: trimmed, toolCalls: [], createdAt: Date.now() },
       ]);
       setIsStreaming(true);
       const controller = new AbortController();

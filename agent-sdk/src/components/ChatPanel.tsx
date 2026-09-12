@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAgent } from '../useAgent';
 import type { LogEntry } from '../types';
 import { ToolCallBlock } from './ToolCallBlock';
-import { ConfirmDialog } from './ConfirmDialog';
+import { ConfirmCard } from './ConfirmCard';
 import './agent-chat.css';
 
 export interface ChatPanelProps {
@@ -16,7 +16,7 @@ export interface ChatPanelProps {
 const DEFAULT_WELCOME =
   '你好，我是企业协同办公助手，可以帮你查询待办、审批、公告、通讯录、知识库等，也可以帮你新建待办、发起审批等。例如问我：我的待办有哪些？';
 
-// 会话面板：标题栏 + 消息列表 + 输入区，写操作确认时叠加确认框
+// 会话面板：标题栏 + 消息列表（含内联确认卡片）+ 输入区
 export function ChatPanel(props: ChatPanelProps) {
   const {
     title = '智能助手',
@@ -25,7 +25,7 @@ export function ChatPanel(props: ChatPanelProps) {
     height = 460,
     onClose,
   } = props;
-  const { messages, logs, isStreaming, error, sendMessage, clear, pendingConfirmation, confirm } = useAgent();
+  const { messages, logs, isStreaming, error, sendMessage, clear, confirm } = useAgent();
   const [input, setInput] = useState('');
   const [showLogs, setShowLogs] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
@@ -34,7 +34,7 @@ export function ChatPanel(props: ChatPanelProps) {
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, logs, showLogs, error, pendingConfirmation]);
+  }, [messages, logs, showLogs, error]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -71,16 +71,20 @@ export function ChatPanel(props: ChatPanelProps) {
         ) : (
           <>
             {messages.length === 0 && <div className="agent-chat-welcome">{welcomeText}</div>}
-            {messages.map((msg) => (
-              <div key={msg.id} className={`agent-chat-msg agent-chat-msg-${msg.role}`}>
-                {msg.role === 'assistant' &&
-                  msg.toolCalls.map((tc) => <ToolCallBlock key={tc.toolCallId} toolCall={tc} />)}
-                {msg.content ? <div className="agent-chat-bubble">{msg.content}</div> : null}
-                {msg.role === 'assistant' && isStreaming && !msg.content && msg.toolCalls.length === 0 && (
-                  <div className="agent-chat-typing">思考中...</div>
-                )}
-              </div>
-            ))}
+            {messages.map((item) =>
+              item.kind === 'confirmation' ? (
+                <ConfirmCard key={item.id} item={item} busy={isStreaming} onConfirm={confirm} />
+              ) : (
+                <div key={item.id} className={`agent-chat-msg agent-chat-msg-${item.role}`}>
+                  {item.role === 'assistant' &&
+                    item.toolCalls.map((tc) => <ToolCallBlock key={tc.toolCallId} toolCall={tc} />)}
+                  {item.content ? <div className="agent-chat-bubble">{item.content}</div> : null}
+                  {item.role === 'assistant' && isStreaming && !item.content && item.toolCalls.length === 0 && (
+                    <div className="agent-chat-typing">思考中...</div>
+                  )}
+                </div>
+              )
+            )}
             {error && <div className="agent-chat-error">{error}</div>}
           </>
         )}
@@ -106,10 +110,6 @@ export function ChatPanel(props: ChatPanelProps) {
           发送
         </button>
       </div>
-
-      {pendingConfirmation && (
-        <ConfirmDialog confirmation={pendingConfirmation} busy={isStreaming} onConfirm={confirm} />
-      )}
     </div>
   );
 }
