@@ -223,6 +223,17 @@ app.post('/api/approvals', (req, res) => {
   };
   store.approvals.set(a.id, a);
   res.json(ok(a));
+  // 领域事件：新审批发起，通知所有管理员（排除申请人自己，避免自己给自己推一条）
+  const adminIds = [...store.employees.values()]
+    .filter((e) => e.role === 'ADMIN' && e.id !== user.userId)
+    .map((e) => e.id);
+  emitDomainEvent({
+    type: 'approval.submitted',
+    actorId: user.userId,
+    source: req.headers['x-source'] === 'agent' ? 'agent' : 'web',
+    targetUserIds: adminIds,
+    data: { id: a.id, title, type: typeStr, amount: a.amount, applicantName: store.employeeName(user.userId) },
+  });
 });
 
 app.post('/api/approvals/:id/approve', requireRole('ADMIN'), (req, res) => {
@@ -490,7 +501,16 @@ function decide(req: AuthedRequest, id: string, comment: string, approved: boole
   a.approverId = user.userId;
   a.comment = comment;
   a.decidedAt = Date.now();
-  return fillApprovalNames(a);
+  const result = fillApprovalNames(a);
+  // 领域事件：审批已有结果，通知申请人
+  emitDomainEvent({
+    type: 'approval.decided',
+    actorId: user.userId,
+    source: (req.headers['x-source'] as string) === 'agent' ? 'agent' : 'web',
+    targetUserIds: [a.applicantId],
+    data: { id: a.id, title: a.title, type: a.type, status: a.status, comment, approverName: store.employeeName(user.userId) },
+  });
+  return result;
 }
 
 // 错误处理中间件：业务异常按 code 映射 HTTP 状态码，其余返回 500

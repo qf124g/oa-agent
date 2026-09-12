@@ -232,7 +232,9 @@ backend 知识库文档（source of truth）
 ```
 web 页面新建待办 → POST /api/todos（backend 落库）
   → emitDomainEvent：POST /internal/events（X-Internal-Secret 共享密钥鉴权，fire-and-forget）
-  → agent-server handleDomainEvent：source=agent 的事件直接丢弃（防自循环）
+  → agent-server handleDomainEvent：按 targetUserIds 计算推送目标（缺省 = 操作人自己）
+     · 若 source=agent 且目标就是操作人自己 → 跳过（防自循环）
+     · 目标为他人（审批通知管理员/申请人）→ 照常推送，即便 agent 来源
   → buildNotification：领域事件转模板消息（标题 + 文案 + 快捷操作）
   → pushToUser：在线 → 写入常驻 SSE 连接实时下发；离线 → 入收件箱（每用户上限 20 条）
   → SDK connectEvents 收到 notify 帧 → 注入消息流（带「提醒」标记）+ 未读角标
@@ -243,10 +245,11 @@ web 页面新建待办 → POST /api/todos（backend 落库）
 
 1. **常驻 SSE 长连接作为推送通道**：与普通响应的区别是只写响应头、永不 `end()`；`res` 存入 `Map<userId, Set<Response>>`（支持同一用户多标签页）作为推送句柄，有事件时取出 `writeSSE` 实时下发；25s 心跳注释帧防代理空闲断连；`res.on('close')` 注销，防止写死连接与内存泄漏
 2. **领域事件同步回调**：backend 落库后同步 HTTP 上报（不上消息队列，匹配单机内存架构）；fire-and-forget + 3s 超时，推送失败不影响主流程
-3. **防自循环**：agent 工具调用统一带 `X-Source: agent` 头，backend 透传 source 字段，助手代办触发的业务事件不再回推助手
-4. **离线收件箱**：内存 Map 按用户暂存，连接建立即补发；上限 20 条防内存膨胀
-5. **模板消息 + 快捷操作**：确定性、零 token 成本；`QuickAction = { label, sendText }`，按钮点击代发预置指令，复用现有 agent 循环与确认协议，无需新机制
-6. **SDK 断线重连**：网络错误指数退避（1s 翻倍至 15s 封顶）；401 用 3s 短重试等待登录
+3. **防自循环（目标语义化）**：agent 工具调用统一带 `X-Source: agent` 头，事件带 `targetUserIds` 表达推送目标。规则细化——仅当「agent 来源 + 推送目标就是操作人自己」才跳过（如助手代办新建待办、新建员工这些「自己操作自己」的事件）；目标为他人时（审批提交通知管理员、审批结果通知申请人）即使 agent 来源也照常推送，否则管理员会漏掉用户通过助手发起的审批通知
+4. **多收件人广播**：事件可选 `targetUserIds` 列表（缺省回退为操作人）。`approval.submitted` 由 backend 计算所有管理员（排除申请人自己）后作为目标列表上报，agent-server 逐个 `pushToUser`
+5. **离线收件箱**：内存 Map 按用户暂存，连接建立即补发；上限 20 条防内存膨胀
+6. **模板消息 + 快捷操作**：确定性、零 token 成本；`QuickAction = { label, sendText }`，按钮点击代发预置指令，复用现有 agent 循环与确认协议，无需新机制
+7. **SDK 断线重连**：网络错误指数退避（1s 翻倍至 15s 封顶）；401 用 3s 短重试等待登录
 
 ### 踩坑记录：登录时序导致的 401 死循环
 
@@ -260,10 +263,13 @@ AgentProvider 挂在应用根节点（包住登录页），首版 `connectEvents
 | 助手代办（X-Source: agent）→ 不回推 | curl | 事件流无新增 |
 | 错误内部密钥 → 拒绝 | curl | 403 |
 | 离线创建 → 重连补发 | curl | 补发成功 |
+| 员工提交审批 → 管理员收到待审批提醒（金额/类型/申请人入文案） | curl | 通过 |
+| 管理员审批通过 → 申请人收到结果通知（含审批意见） | curl | 通过 |
+| agent 来源发起审批 → 管理员仍收到（目标非操作人自己） | curl | 通过 |
 | 浏览器全链路 | browser E2E | 未读角标、提醒标记、按钮代发对话均正常 |
 
-### 后续扩展（P2/P3）
+### 后续扩展（P3 完成后续）
 
 - `employee.created`（已实现：backend 新增 POST /api/employees（ADMIN 权限 + 工号唯一校验），web 通讯录页补管理员新建入口，推送含「生成入职待办 / 发欢迎公告」快捷操作）
-- `approval.submitted`（通知管理员）/ `approval.decided`（通知申请人）、公告全员广播
-- 可选增强：浏览器 Notification API 通知、LLM 生成个性化推送文案、事件驱动 agent-loop
+- `approval.submitted`（已实现：通知所有管理员，排除申请人自己）、`approval.decided`（已实现：通知申请人，含审批意见）
+- 待扩展：公告全员广播（`announcement.published`）、浏览器 Notification API 通知、LLM 生成个性化推送文案

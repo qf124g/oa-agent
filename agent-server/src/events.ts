@@ -16,9 +16,10 @@ export interface AgentNotification {
 
 // 领域事件（由 backend 通过 POST /internal/events 上报）
 export interface DomainEvent {
-  type: 'todo.created' | 'employee.created';
+  type: 'todo.created' | 'employee.created' | 'approval.submitted' | 'approval.decided';
   actorId: string;
   source: 'web' | 'agent';
+  targetUserIds?: string[]; // 推送目标；缺省时推给 actorId 自己
   data: Record<string, unknown>;
 }
 
@@ -67,14 +68,23 @@ function pushToUser(userId: string, notification: AgentNotification): void {
 }
 
 const PRIORITY_LABEL: Record<string, string> = { HIGH: '高', MEDIUM: '中', LOW: '低' };
+const APPROVAL_TYPE_LABEL: Record<string, string> = { LEAVE: '请假', EXPENSE: '报销', PURCHASE: '采购' };
 
-// 领域事件处理：转模板消息并推送（agent 来源不回推，避免自循环）
+// 领域事件处理：转模板消息并按目标推送
 export function handleDomainEvent(event: DomainEvent): void {
-  if (event.source === 'agent') return;
+  // 推送目标：显式列表优先，否则推给操作人自己
+  const targets = event.targetUserIds && event.targetUserIds.length > 0 ? event.targetUserIds : [event.actorId];
+  // 防自循环：助手代办的写操作，若推送目标就是操作人自己，回推毫无价值，跳过；
+  // 目标为他人（如审批通知管理员/申请人）时，即使 agent 来源也照常推送
+  const selfOnly = targets.length === 1 && targets[0] === event.actorId;
+  if (event.source === 'agent' && selfOnly) return;
+
   const notification = buildNotification(event);
   if (!notification) return;
-  console.log(`[agent-server][notify] 事件 ${event.type} → 用户 ${event.actorId}`);
-  pushToUser(event.actorId, notification);
+  console.log(`[agent-server][notify] 事件 ${event.type} → 用户 ${targets.join(',')}`);
+  for (const uid of targets) {
+    pushToUser(uid, notification);
+  }
 }
 
 // 领域事件 → 模板推送文案与快捷操作
@@ -106,6 +116,38 @@ function buildNotification(event: DomainEvent): AgentNotification | null {
         actions: [
           { label: '生成入职待办', sendText: `帮我创建一条高优先级待办：为新员工「${name}」安排入职手续与账号开通` },
           { label: '发欢迎公告', sendText: `帮我发布一条公告，欢迎新员工「${name}」加入${dept}` },
+        ],
+        createdAt: Date.now(),
+      };
+    }
+    case 'approval.submitted': {
+      const title = String(event.data.title ?? '');
+      const type = APPROVAL_TYPE_LABEL[String(event.data.type)] ?? '审批';
+      const applicant = String(event.data.applicantName ?? '');
+      const amount = event.data.amount != null ? `（金额 ¥${event.data.amount}）` : '';
+      return {
+        id: randomUUID(),
+        title: '待审批提醒',
+        content: `${applicant} 提交了${type}申请「${title}」${amount}，请及时处理。`,
+        actions: [
+          { label: '查看待审批', sendText: '我有哪些待审批的申请' },
+          { label: '查看并处理', sendText: `帮我看看申请人「${applicant}」的「${title}」这条审批，然后处理` },
+        ],
+        createdAt: Date.now(),
+      };
+    }
+    case 'approval.decided': {
+      const title = String(event.data.title ?? '');
+      const type = APPROVAL_TYPE_LABEL[String(event.data.type)] ?? '审批';
+      const approved = event.data.status === 'APPROVED';
+      const approver = String(event.data.approverName ?? '');
+      const comment = event.data.comment ? `审批意见：${event.data.comment}` : '';
+      return {
+        id: randomUUID(),
+        title: approved ? '审批已通过' : '审批已驳回',
+        content: `你提交的${type}申请「${title}」已被${approver}${approved ? '通过' : '驳回'}。${comment}`,
+        actions: [
+          { label: '查看我的申请', sendText: '我发起的审批有哪些' },
         ],
         createdAt: Date.now(),
       };

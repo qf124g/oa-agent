@@ -166,9 +166,9 @@ agent-server/src/
 
 - 事件通道：`GET /api/agent/events` 常驻 SSE 连接（Bearer 鉴权、25s 心跳保活、断线指数退避重连）；同一用户多标签页全部推送
 - 离线收件箱：用户无在线连接时按用户暂存（上限 20 条），连接建立后补发
-- 防自循环：事件带 source 字段（web / agent），agent-server 工具调用统一带 `X-Source: agent` 头，助手代办触发的业务事件不再回推
+- 防自循环：事件带 source 字段（web / agent）与目标列表 targetUserIds。规则——仅当「agent 来源 + 推送目标就是操作人自己」才跳过（如助手代办新建待办/员工）；目标为他人（审批通知管理员/申请人）时，即使 agent 来源也照常推送
 - 推送形态：模板消息（标题 + 文案 + 快捷操作按钮），零 token 成本、确定性强；LLM 个性化建议作为后续增强
-- 已实现事件：`todo.created`（补充描述、查看我的待办）、`employee.created`（生成入职待办、发欢迎公告，web 端已补管理员新建员工入口）；后续扩展 approval.submitted / approval.decided 等
+- 已实现事件：`todo.created`（补充描述、查看我的待办）、`employee.created`（生成入职待办、发欢迎公告）、`approval.submitted`（通知所有管理员，排除申请人自己）、`approval.decided`（通知申请人，含审批意见）；后续可扩展公告全员广播等
 
 ## agent-sdk 设计（React SDK）
 
