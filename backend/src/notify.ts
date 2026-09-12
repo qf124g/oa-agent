@@ -4,9 +4,9 @@
 const AGENT_EVENT_URL = process.env.AGENT_EVENT_URL || 'http://localhost:3002/internal/events';
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET || 'dev-internal-secret';
 
-// 领域事件：P1 仅待办创建，后续扩展 employee.created / approval.submitted 等
+// 领域事件：待办创建 / 新员工入职，后续可扩展 approval.submitted 等
 export interface DomainEvent {
-  type: 'todo.created';
+  type: 'todo.created' | 'employee.created';
   actorId: string; // 操作人，即推送目标用户
   source: 'web' | 'agent'; // 事件来源，agent-server 据此避免「助手代办 → 又回推助手」的自循环
   data: Record<string, unknown>;

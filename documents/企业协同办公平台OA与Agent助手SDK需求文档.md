@@ -58,6 +58,7 @@ backend (Express 8080)               agent-server (Express 3002)
 | 审批（通过/驳回） | ❌ | ✅ |
 | 发布公告 | ❌ | ✅ |
 | 知识库文档新增/删除 | ❌ | ✅ |
+| 新增员工 | ❌ | ✅ |
 
 固定账号（密码均为 123456）：admin（陈昊，ADMIN）、zhangwei（张伟）、lina（李娜）。
 
@@ -167,7 +168,7 @@ agent-server/src/
 - 离线收件箱：用户无在线连接时按用户暂存（上限 20 条），连接建立后补发
 - 防自循环：事件带 source 字段（web / agent），agent-server 工具调用统一带 `X-Source: agent` 头，助手代办触发的业务事件不再回推
 - 推送形态：模板消息（标题 + 文案 + 快捷操作按钮），零 token 成本、确定性强；LLM 个性化建议作为后续增强
-- P1 事件：`todo.created`（优先级/截止日期入文案，快捷操作：补充描述、查看我的待办）；后续扩展 employee.created / approval.submitted / approval.decided 等
+- 已实现事件：`todo.created`（补充描述、查看我的待办）、`employee.created`（生成入职待办、发欢迎公告，web 端已补管理员新建员工入口）；后续扩展 approval.submitted / approval.decided 等
 
 ## agent-sdk 设计（React SDK）
 

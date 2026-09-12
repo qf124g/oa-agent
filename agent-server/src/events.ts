@@ -16,7 +16,7 @@ export interface AgentNotification {
 
 // 领域事件（由 backend 通过 POST /internal/events 上报）
 export interface DomainEvent {
-  type: 'todo.created';
+  type: 'todo.created' | 'employee.created';
   actorId: string;
   source: 'web' | 'agent';
   data: Record<string, unknown>;
@@ -91,6 +91,21 @@ function buildNotification(event: DomainEvent): AgentNotification | null {
         actions: [
           { label: '补充描述', sendText: `帮我补充待办「${title}」的描述` },
           { label: '查看我的待办', sendText: '我的待办有哪些' },
+        ],
+        createdAt: Date.now(),
+      };
+    }
+    case 'employee.created': {
+      const name = String(event.data.name ?? '');
+      const dept = String(event.data.departmentName ?? '');
+      const title = String(event.data.title ?? '');
+      return {
+        id: randomUUID(),
+        title: '新员工入职',
+        content: `新员工「${name}」（${dept} · ${title}）已加入。需要我安排后续事项吗？`,
+        actions: [
+          { label: '生成入职待办', sendText: `帮我创建一条高优先级待办：为新员工「${name}」安排入职手续与账号开通` },
+          { label: '发欢迎公告', sendText: `帮我发布一条公告，欢迎新员工「${name}」加入${dept}` },
         ],
         createdAt: Date.now(),
       };

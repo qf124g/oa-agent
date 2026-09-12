@@ -305,6 +305,46 @@ app.get('/api/employees/:id', (req, res) => {
   res.json(ok(sanitizeEmployee(e)));
 });
 
+// 新建员工（管理员）：工号即登录账号，初始密码默认 123456
+app.post('/api/employees', requireRole('ADMIN'), (req, res) => {
+  const user = (req as AuthedRequest).currentUser as AuthUser;
+  const b = req.body ?? {};
+  const userNo = String(b.userNo ?? '').trim();
+  const name = String(b.name ?? '').trim();
+  const departmentId = String(b.departmentId ?? '').trim();
+  const title = String(b.title ?? '').trim();
+  if (!userNo || !name || !departmentId || !title) {
+    throw new BusinessError(400, '工号、姓名、部门、职位不能为空');
+  }
+  if ([...store.employees.values()].some((e) => e.userNo === userNo)) {
+    throw new BusinessError(400, `工号 ${userNo} 已存在`);
+  }
+  if (!store.departments.has(departmentId)) {
+    throw new BusinessError(400, '部门不存在');
+  }
+  const emp: Employee = {
+    id: store.nextId('E'),
+    userNo,
+    name,
+    departmentId,
+    title,
+    phone: String(b.phone ?? '').trim(),
+    email: String(b.email ?? '').trim() || `${userNo}@oa.local`,
+    role: b.role === 'ADMIN' ? 'ADMIN' : 'EMPLOYEE',
+    password: String(b.password ?? '123456'),
+    departmentName: '',
+  };
+  store.employees.set(emp.id, emp);
+  res.json(ok(sanitizeEmployee(emp)));
+  // 领域事件：新员工入职，通知操作人（助手代办的标记 agent 来源，不回推）
+  emitDomainEvent({
+    type: 'employee.created',
+    actorId: user.userId,
+    source: req.headers['x-source'] === 'agent' ? 'agent' : 'web',
+    data: { id: emp.id, name: emp.name, userNo: emp.userNo, title: emp.title, departmentName: store.departmentName(departmentId) },
+  });
+});
+
 // ---------- 知识库 ----------
 
 app.get('/api/knowledge', (req, res) => {

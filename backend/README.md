@@ -29,6 +29,7 @@ PORT=8080 npm run start -w backend  # 指定端口
 | GET | /api/announcements/:id | 公告详情 | 登录 |
 | GET | /api/departments | 部门列表 | 登录 |
 | GET | /api/employees 、 /api/employees/:id | 员工列表 / 详情 | 登录 |
+| POST | /api/employees | 新建员工（工号唯一校验，初始密码默认 123456） | ADMIN |
 | GET/POST | /api/knowledge | 知识库列表 / 新增 | 登录 / ADMIN |
 | GET | /api/knowledge/:id | 知识库详情 | 登录 |
 | DELETE | /api/knowledge/:id | 删除知识库文档 | ADMIN |

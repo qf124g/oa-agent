@@ -72,6 +72,7 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
       url,
       getHeaders: () => getAuthHeadersRef.current?.(),
       onNotify: (n) => {
+        console.log('Received notify:', n);
         setMessages((prev) => [
           ...prev,
           {

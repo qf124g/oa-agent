@@ -214,3 +214,56 @@ backend 知识库文档（source of truth）
 - 深度使用了协议的进阶特性：`tools`（JSON Schema 函数声明）、流式增量中的 tool\_calls 分片、`tool_call_id` 消息关联、embeddings 接口。
 
 #
+
+## 7. 助手主动触达（业务事件推送，P1）
+
+### 需求场景
+
+用户在网页上新建事项（如待办）后，助手主动推送一条消息到会话面板（含快捷操作按钮），用户点按钮即可让助手代办后续流程，避免在页面间逐个跳转。这是「用户主动问助手」之外的反向链路：助手主动找用户。
+
+### 实现位置
+
+- backend：[notify.ts](file:///Users/test/Documents/trae_projects/food_shop_agent/backend/src/notify.ts)（领域事件上报）、[index.ts](file:///Users/test/Documents/trae_projects/food_shop_agent/backend/src/index.ts)（POST /api/todos 落库后挂钩）
+- agent-server：[events.ts](file:///Users/test/Documents/trae_projects/food_shop_agent/agent-server/src/events.ts)（连接注册表 / 离线收件箱 / 模板消息）、[index.ts](file:///Users/test/Documents/trae_projects/food_shop_agent/agent-server/src/index.ts)（`GET /api/agent/events` 与 `POST /internal/events` 两个端点）、[executor.ts](file:///Users/test/Documents/trae_projects/food_shop_agent/agent-server/src/tools/executor.ts)（工具调用带 X-Source: agent 头）
+- agent-sdk：[sse-client.ts](file:///Users/test/Documents/trae_projects/food_shop_agent/agent-sdk/src/sse-client.ts)（connectEvents + readSSEFrames）、[context.tsx](file:///Users/test/Documents/trae_projects/food_shop_agent/agent-sdk/src/context.tsx)（常驻连接、注入消息流、未读角标）、[ChatPanel.tsx](file:///Users/test/Documents/trae_projects/food_shop_agent/agent-sdk/src/components/ChatPanel.tsx)（提醒标记 + 快捷按钮渲染）
+
+### 整体链路
+
+```
+web 页面新建待办 → POST /api/todos（backend 落库）
+  → emitDomainEvent：POST /internal/events（X-Internal-Secret 共享密钥鉴权，fire-and-forget）
+  → agent-server handleDomainEvent：source=agent 的事件直接丢弃（防自循环）
+  → buildNotification：领域事件转模板消息（标题 + 文案 + 快捷操作）
+  → pushToUser：在线 → 写入常驻 SSE 连接实时下发；离线 → 入收件箱（每用户上限 20 条）
+  → SDK connectEvents 收到 notify 帧 → 注入消息流（带「提醒」标记）+ 未读角标
+  → 用户点快捷按钮 → 代发预置指令 → 进入正常 agent 循环（写操作仍走确认卡片）
+```
+
+### 关键机制
+
+1. **常驻 SSE 长连接作为推送通道**：与普通响应的区别是只写响应头、永不 `end()`；`res` 存入 `Map<userId, Set<Response>>`（支持同一用户多标签页）作为推送句柄，有事件时取出 `writeSSE` 实时下发；25s 心跳注释帧防代理空闲断连；`res.on('close')` 注销，防止写死连接与内存泄漏
+2. **领域事件同步回调**：backend 落库后同步 HTTP 上报（不上消息队列，匹配单机内存架构）；fire-and-forget + 3s 超时，推送失败不影响主流程
+3. **防自循环**：agent 工具调用统一带 `X-Source: agent` 头，backend 透传 source 字段，助手代办触发的业务事件不再回推助手
+4. **离线收件箱**：内存 Map 按用户暂存，连接建立即补发；上限 20 条防内存膨胀
+5. **模板消息 + 快捷操作**：确定性、零 token 成本；`QuickAction = { label, sendText }`，按钮点击代发预置指令，复用现有 agent 循环与确认协议，无需新机制
+6. **SDK 断线重连**：网络错误指数退避（1s 翻倍至 15s 封顶）；401 用 3s 短重试等待登录
+
+### 踩坑记录：登录时序导致的 401 死循环
+
+AgentProvider 挂在应用根节点（包住登录页），首版 `connectEvents` 的 `headers` 在调用时**一次性求值**——登录页挂载时 token 不存在，之后所有重连都复用这份空 headers，事件通道永远 401 连不上（curl 测试直接带 token，未暴露此问题）。修复：`headers` 改为 `getHeaders` 回调，每次重连重新求值（登录后下一次重试即拿到 token）。经验：**长连接/重试类逻辑的鉴权头必须惰性求值，不能快照**。
+
+### 验证记录
+
+| 用例 | 方式 | 结果 |
+|---|---|---|
+| 网页创建待办 → 收到推送 | curl + 浏览器 | notify 帧含标题/优先级/截止日期 + 两个快捷按钮 |
+| 助手代办（X-Source: agent）→ 不回推 | curl | 事件流无新增 |
+| 错误内部密钥 → 拒绝 | curl | 403 |
+| 离线创建 → 重连补发 | curl | 补发成功 |
+| 浏览器全链路 | browser E2E | 未读角标、提醒标记、按钮代发对话均正常 |
+
+### 后续扩展（P2/P3）
+
+- `employee.created`（已实现：backend 新增 POST /api/employees（ADMIN 权限 + 工号唯一校验），web 通讯录页补管理员新建入口，推送含「生成入职待办 / 发欢迎公告」快捷操作）
+- `approval.submitted`（通知管理员）/ `approval.decided`（通知申请人）、公告全员广播
+- 可选增强：浏览器 Notification API 通知、LLM 生成个性化推送文案、事件驱动 agent-loop
