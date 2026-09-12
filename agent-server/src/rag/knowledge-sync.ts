@@ -7,7 +7,7 @@ import { VectorIndex, type SearchHit } from './vector-index';
 // 知识库向量索引：文档 source of truth 在平台后端，此处维护内存向量索引
 // 按需（首次检索前 / 写操作后）与平台后端同步，按 contentHash 做文档级增量更新
 
-interface KnowledgeDocument {
+export interface KnowledgeDocument {
   id: string;
   title: string;
   content: string;
@@ -36,9 +36,8 @@ async function fetchAllDocuments(token: string): Promise<KnowledgeDocument[]> {
   return json.data || [];
 }
 
-// 同步向量索引：新增/变更的文档重新向量化，被删除的文档从索引移除
-export async function ensureSynced(token: string): Promise<void> {
-  const docs = await fetchAllDocuments(token);
+// 用文档列表做增量同步：新增/变更的文档重新向量化，被删除的文档从索引移除
+async function reconcileDocs(docs: KnowledgeDocument[]): Promise<void> {
   for (const doc of docs) {
     const hash = contentHash(doc.content);
     if (index.isFresh(doc.id, hash)) continue;
@@ -51,6 +50,17 @@ export async function ensureSynced(token: string): Promise<void> {
     if (!currentIds.has(docId)) index.remove(docId);
   }
   synced = true;
+}
+
+// 同步向量索引（拉取路径）：从平台后端拉全量文档后增量重建（聊天时兜底）
+export async function ensureSynced(token: string): Promise<void> {
+  const docs = await fetchAllDocuments(token);
+  await reconcileDocs(docs);
+}
+
+// 同步向量索引（事件路径）：backend 写操作后推送全量文档，立即实时重建
+export async function syncFromEvent(docs: KnowledgeDocument[]): Promise<void> {
+  await reconcileDocs(docs);
 }
 
 // 单篇文档分块并逐块向量化

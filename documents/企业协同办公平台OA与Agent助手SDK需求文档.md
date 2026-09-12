@@ -72,7 +72,7 @@ backend (Express 8080)               agent-server (Express 3002)
 | /approval | 审批中心 | 三 Tab：我发起的/待我审批/发起申请 |
 | /announcement | 公告 | 列表/详情/置顶，ADMIN 发布 |
 | /directory | 通讯录 | 部门筛选 + 姓名搜索 + 员工详情 |
-| /knowledge | 知识库 | 文档列表/详情/新增/删除（ADMIN 管理） |
+| /knowledge | 知识库 | 文档列表/详情/新增/上传/删除（ADMIN 管理） |
 
 ## agent-server 设计（Express 3002）
 
@@ -126,7 +126,8 @@ POST /api/chat 与 /api/chat/confirm 取 Bearer token → 调 backend GET /api/a
 ### RAG 知识库
 
 - 文档 source of truth = backend（KnowledgeDocument），向量索引 = agent-server 内存
-- 同步策略为**懒同步**：首次检索前全量同步一次；新增/删除文档的写操作后将索引标记失效，下次检索前再同步
+- 录入方式：① 新增（手写正文）② 上传文档（`POST /api/knowledge/upload`，multer 内存存储 10MB 上限；txt/md 直接 UTF-8 解码、pdf 用 pdf-parse、docx 用 mammoth 提取纯文本后入库）
+- 同步策略为**事件驱动实时同步**：backend 知识库写操作（新增/删除/上传）后回调 `knowledge.updated` 领域事件（携带全量文档正文），agent-server 的 events.ts 拦截后调 syncFromEvent 立即增量重建索引，上传/删除即时生效，不再依赖提问时的懒同步
 - 增量更新按 contentHash（md5）：内容未变的文档跳过重新向量化，后端已删除的文档级联移出索引
 - 链路：chunker（分块）→ embedding（/embeddings）→ vector-index（余弦 TopK）→ search_knowledge 工具 → 文本块注入 Prompt
 
@@ -234,5 +235,5 @@ npm run dev    # concurrently 并行拉起 backend / agent / web
 5. 鉴权：zhangwei（EMPLOYEE）问「帮我审批第一条申请」→ 返回 403 语义，不越权
 6. 确认写闭环：admin 说「帮我新建待办：明天提交周报」→ 消息流推入确认卡片 → 点确认 → 真落库 → 待办页可见 → 流式答复，卡片定格为「已确认」；点取消则不落库，卡片定格为「已取消」
 7. 审批闭环：admin 发起报销 → 确认协议真正通过/驳回 → 状态变化
-8. RAG：新增知识库文档（如考勤制度）→ 提问命中并注入语义回答；删除后不再命中
+8. RAG：新增或上传知识库文档（如考勤制度 / 上传 PDF 或 Word）→ 提问命中并注入语义回答；上传/删除后向量索引实时更新（agent-server 日志可见「知识库向量索引已更新」），删除后不再命中
 9. 硬约束：注释中文 UTF-8、无 emoji、Ant Design 统一 UI

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { writeSSE } from './sse';
+import { syncFromEvent, type KnowledgeDocument } from './rag/knowledge-sync';
 
 // 助手主动触达：常驻事件通道（SSE）连接管理 + 领域事件转模板推送
 // 连接注册表按用户维度维护（同一用户可能开多个标签页，全部推送）
@@ -16,7 +17,7 @@ export interface AgentNotification {
 
 // 领域事件（由 backend 通过 POST /internal/events 上报）
 export interface DomainEvent {
-  type: 'todo.created' | 'employee.created' | 'approval.submitted' | 'approval.decided';
+  type: 'todo.created' | 'employee.created' | 'approval.submitted' | 'approval.decided' | 'knowledge.updated';
   actorId: string;
   source: 'web' | 'agent';
   targetUserIds?: string[]; // 推送目标；缺省时推给 actorId 自己
@@ -72,6 +73,15 @@ const APPROVAL_TYPE_LABEL: Record<string, string> = { LEAVE: '请假', EXPENSE: 
 
 // 领域事件处理：转模板消息并按目标推送
 export function handleDomainEvent(event: DomainEvent): void {
+  // 知识库变更：实时重建向量索引（异步），不推送用户消息
+  if (event.type === 'knowledge.updated') {
+    const docs = (event.data.docs as KnowledgeDocument[]) ?? [];
+    syncFromEvent(docs)
+      .then(() => console.log(`[agent-server][notify] 知识库向量索引已更新（${docs.length} 篇）`))
+      .catch((err) => console.warn(`[agent-server][notify] 知识库向量更新失败: ${err instanceof Error ? err.message : String(err)}`));
+    return;
+  }
+
   // 推送目标：显式列表优先，否则推给操作人自己
   const targets = event.targetUserIds && event.targetUserIds.length > 0 ? event.targetUserIds : [event.actorId];
   // 防自循环：助手代办的写操作，若推送目标就是操作人自己，回推毫无价值，跳过；

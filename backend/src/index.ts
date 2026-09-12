@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import multer from 'multer';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { BusinessError, ok, fail, paginate, asInt, str, plusDays } from './common';
 import { store } from './store';
@@ -389,6 +390,44 @@ app.patch('/api/employees/:id', requireRole('ADMIN'), (req, res) => {
 
 // ---------- 知识库 ----------
 
+// 文件上传（内存存储，10MB 上限）
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+// 从上传文件解析纯文本：txt/md 直接 UTF-8 解码，PDF 用 pdf-parse，docx 用 mammoth
+async function extractText(file: Express.Multer.File): Promise<string> {
+  const name = file.originalname.toLowerCase();
+  if (name.endsWith('.pdf')) {
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: file.buffer });
+    const result = await parser.getText();
+    await parser.destroy();
+    return result.text ?? '';
+  }
+  if (name.endsWith('.docx')) {
+    const mammoth = await import('mammoth');
+    const result = await mammoth.extractRawText({ buffer: file.buffer });
+    return result.value ?? '';
+  }
+  return file.buffer.toString('utf8');
+}
+
+// 知识库写操作后：发送 knowledge.updated 事件（携带全量文档正文），驱动 agent-server 实时重建向量索引
+function emitKnowledgeEvent(req: Request): void {
+  const docs = [...store.knowledgeDocs.values()].map((k) => ({
+    id: k.id,
+    title: k.title,
+    content: k.content,
+    category: k.category,
+  }));
+  const user = (req as AuthedRequest).currentUser as AuthUser;
+  emitDomainEvent({
+    type: 'knowledge.updated',
+    actorId: user.userId,
+    source: (req.headers['x-source'] as string) === 'agent' ? 'agent' : 'web',
+    data: { docs },
+  });
+}
+
 app.get('/api/knowledge', (req, res) => {
   const category = queryStr(req.query.category);
   const page = asInt(req.query.page, 1);
@@ -448,6 +487,7 @@ app.post('/api/knowledge', requireRole('ADMIN'), (req, res) => {
   };
   store.knowledgeDocs.set(k.id, k);
   res.json(ok(k));
+  emitKnowledgeEvent(req);
 });
 
 app.delete('/api/knowledge/:id', requireRole('ADMIN'), (req, res) => {
@@ -455,6 +495,41 @@ app.delete('/api/knowledge/:id', requireRole('ADMIN'), (req, res) => {
     throw new BusinessError(404, '文档不存在');
   }
   res.json(ok(null));
+  emitKnowledgeEvent(req);
+});
+
+// 上传文档（管理员）：解析文件正文存入知识库，触发向量实时重建
+app.post('/api/knowledge/upload', requireRole('ADMIN'), upload.single('file'), async (req, res) => {
+  const user = (req as AuthedRequest).currentUser as AuthUser;
+  try {
+    const file = req.file;
+    if (!file) {
+      res.json(fail(400, '未选择文件'));
+      return;
+    }
+    const title = str(req.body.title) || file.originalname.replace(/\.[^.]+$/, '');
+    const content = await extractText(file);
+    if (!content.trim()) {
+      res.json(fail(400, '未能从文件中解析出文本，请确认文件内容为可提取的文本'));
+      return;
+    }
+    const now = Date.now();
+    const k: KnowledgeDocument = {
+      id: store.nextId('K'),
+      title,
+      content,
+      category: str(req.body.category) || '未分类',
+      uploadedBy: user.userId,
+      createdAt: now,
+      updatedAt: now,
+      uploadedByName: store.employeeName(user.userId),
+    };
+    store.knowledgeDocs.set(k.id, k);
+    res.json(ok(k));
+    emitKnowledgeEvent(req);
+  } catch (err) {
+    res.json(fail(500, `文件解析失败：${err instanceof Error ? err.message : String(err)}`));
+  }
 });
 
 // ---------- 工作台 ----------

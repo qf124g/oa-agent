@@ -4,9 +4,9 @@
 const AGENT_EVENT_URL = process.env.AGENT_EVENT_URL || 'http://localhost:3002/internal/events';
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET || 'dev-internal-secret';
 
-// 领域事件：待办创建 / 新员工入职 / 审批发起 / 审批完成，后续可扩展公告等
+// 领域事件：待办创建 / 新员工入职 / 审批发起 / 审批完成 / 知识库变更（触发向量实时重建）
 export interface DomainEvent {
-  type: 'todo.created' | 'employee.created' | 'approval.submitted' | 'approval.decided';
+  type: 'todo.created' | 'employee.created' | 'approval.submitted' | 'approval.decided' | 'knowledge.updated';
   actorId: string; // 操作人（事件发出者）
   source: 'web' | 'agent'; // 事件来源，agent-server 据此避免「操作人自己触发」的回推自循环
   targetUserIds?: string[]; // 推送目标；缺省时推给 actorId 自己（广播类事件必须显式给列表）

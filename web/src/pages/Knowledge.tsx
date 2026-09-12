@@ -1,7 +1,7 @@
-import { PlusOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Card, Flex, Form, Input, Modal, Popconfirm, Tag, Typography } from 'antd';
+import { InboxOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Card, Flex, Form, Input, Modal, Popconfirm, Tag, Typography, Upload, type UploadFile, type UploadProps } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
-import { apiDelete, apiGet, apiPost } from '../api';
+import { apiDelete, apiGet, apiPost, apiUpload } from '../api';
 import type { KnowledgeDocument, Paged } from '../types';
 import { useAuth } from '../auth/AuthContext';
 import DataTable, { type Column } from '../components/DataTable';
@@ -22,6 +22,7 @@ export default function Knowledge() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<KnowledgeDocument | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -93,9 +94,14 @@ export default function Knowledge() {
           知识库
         </Typography.Title>
         {isAdmin && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setShowCreate(true)}>
-            新增文档
-          </Button>
+          <Flex gap={8}>
+            <Button type="primary" icon={<UploadOutlined />} onClick={() => setShowUpload(true)}>
+              上传文档
+            </Button>
+            <Button icon={<PlusOutlined />} onClick={() => setShowCreate(true)}>
+              新增文档
+            </Button>
+          </Flex>
         )}
       </Flex>
 
@@ -109,6 +115,7 @@ export default function Knowledge() {
 
       {detailId && <DetailModal detail={detail} onClose={() => setDetailId(null)} />}
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreated={load} />}
+      {showUpload && <UploadModal onClose={() => setShowUpload(false)} onCreated={load} />}
     </Flex>
   );
 }
@@ -176,6 +183,73 @@ function CreateModal(props: { onClose: () => void; onCreated: () => void }) {
         </Form.Item>
         <Form.Item name="content" label="正文" rules={[{ required: true, message: '请输入文档正文' }]}>
           <Input.TextArea rows={5} />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
+// 上传文档弹窗（管理员）：选择文件后解析正文入库，实时向量化
+function UploadModal(props: { onClose: () => void; onCreated: () => void }) {
+  const { onClose, onCreated } = props;
+  const { message } = App.useApp();
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleChange: UploadProps['onChange'] = ({ fileList: fl }) => {
+    setFileList(fl.slice(-1));
+    const origin = fl[fl.length - 1]?.originFileObj as File | undefined;
+    setSelectedFile(origin ?? null);
+    if (origin && !title) {
+      setTitle(origin.name.replace(/\.[^.]+$/, ''));
+    }
+  };
+
+  const handleOk = async () => {
+    if (!selectedFile) {
+      message.warning('请先选择要上传的文件');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await apiUpload('/api/knowledge/upload', selectedFile, {
+        title: title.trim(),
+        category: category.trim(),
+      });
+      message.success('上传成功，已加入知识库并实时向量化');
+      onCreated();
+      onClose();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '上传失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal title="上传知识库文档" open onOk={handleOk} onCancel={onClose} confirmLoading={submitting} okText="上传" cancelText="取消">
+      <Upload.Dragger
+        accept=".txt,.md,.pdf,.docx"
+        maxCount={1}
+        fileList={fileList}
+        beforeUpload={() => false}
+        onChange={handleChange}
+      >
+        <p className="ant-upload-drag-icon">
+          <InboxOutlined />
+        </p>
+        <p className="ant-upload-text">点击或拖拽文件到此区域</p>
+        <p className="ant-upload-hint">支持 txt / md / pdf / docx，大小不超过 10MB，上传后自动解析并向量化</p>
+      </Upload.Dragger>
+      <Form layout="vertical" style={{ marginTop: 16 }}>
+        <Form.Item label="标题（留空默认取文件名）">
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="文档标题" />
+        </Form.Item>
+        <Form.Item label="分类">
+          <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="如 制度 / FAQ / 操作手册" />
         </Form.Item>
       </Form>
     </Modal>
