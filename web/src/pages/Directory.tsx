@@ -1,12 +1,29 @@
-import { Alert, App, Button, Card, Descriptions, Flex, Form, Input, Modal, Select, Tag, Typography } from 'antd';
+import {
+  App,
+  Alert,
+  Avatar,
+  Button,
+  Card,
+  Drawer,
+  Descriptions,
+  Flex,
+  Form,
+  Input,
+  Modal,
+  Select,
+  Space,
+  Tag,
+  Typography,
+} from 'antd';
+import { EditOutlined, MailOutlined, PhoneOutlined, UserOutlined } from '@ant-design/icons';
 import { useCallback, useEffect, useState } from 'react';
-import { apiGet, apiPost } from '../api';
+import { apiGet, apiPatch, apiPost } from '../api';
 import type { Department, Employee, Paged } from '../types';
 import { ROLE_LABEL } from '../constants';
 import { useAuth } from '../auth/AuthContext';
 import DataTable, { type Column } from '../components/DataTable';
 
-// 通讯录：部门筛选 + 员工列表 / 详情，管理员可新建员工
+// 人员管理：部门筛选 + 员工列表，管理员可新建/编辑员工
 export default function Directory() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
@@ -17,7 +34,6 @@ export default function Directory() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<Employee | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
   const loadDepartments = useCallback(async () => {
@@ -52,19 +68,19 @@ export default function Directory() {
     loadEmployees();
   }, [loadEmployees]);
 
-  const openDetail = async (id: string) => {
-    setDetailId(id);
-    setDetail(null);
-    try {
-      const data = await apiGet<Employee>(`/api/employees/${id}`);
-      setDetail(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '加载员工详情失败');
-    }
-  };
-
   const columns: Column<Employee>[] = [
-    { key: 'name', title: '姓名' },
+    {
+      key: 'name',
+      title: '姓名',
+      render: (r) => (
+        <Space size={8}>
+          <Avatar size="small" style={{ background: r.role === 'ADMIN' ? '#1677ff' : '#4e5969' }}>
+            {r.name.charAt(0)}
+          </Avatar>
+          <span>{r.name}</span>
+        </Space>
+      ),
+    },
     { key: 'userNo', title: '工号' },
     { key: 'departmentName', title: '部门' },
     { key: 'title', title: '职位' },
@@ -73,18 +89,25 @@ export default function Directory() {
       key: 'action',
       title: '操作',
       render: (r) => (
-        <a onClick={() => openDetail(r.id)} style={{ color: '#1677ff' }}>
+        <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setDetailId(r.id)}>
           详情
-        </a>
+        </Button>
       ),
     },
   ];
 
   return (
     <Flex vertical gap={16}>
-      <Typography.Title level={4} style={{ margin: 0 }}>
-        通讯录
-      </Typography.Title>
+      <Flex align="center" justify="space-between">
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          人员管理
+        </Typography.Title>
+        {isAdmin && (
+          <Button type="primary" icon={<EditOutlined />} onClick={() => setShowCreate(true)}>
+            新建员工
+          </Button>
+        )}
+      </Flex>
 
       <Card>
         <Flex wrap gap={12} style={{ marginBottom: 12 }}>
@@ -102,21 +125,148 @@ export default function Directory() {
             style={{ width: 220 }}
             onSearch={(v) => setName(v)}
           />
-          {isAdmin && (
-            <Button type="primary" style={{ marginLeft: 'auto' }} onClick={() => setShowCreate(true)}>
-              新建员工
-            </Button>
-          )}
         </Flex>
         {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />}
         <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} loading={loading} emptyText="暂无员工" />
       </Card>
 
-      {detailId && <DetailModal detail={detail} onClose={() => setDetailId(null)} />}
+      {detailId && (
+        <EmployeeDrawer
+          employeeId={detailId}
+          departments={departments}
+          isAdmin={isAdmin}
+          onClose={() => setDetailId(null)}
+          onUpdated={loadEmployees}
+        />
+      )}
       {showCreate && (
         <CreateEmployeeModal departments={departments} onClose={() => setShowCreate(false)} onCreated={loadEmployees} />
       )}
     </Flex>
+  );
+}
+
+// 员工详情抽屉：顶部信息卡 + 详情展示，管理员可切换编辑模式更新信息
+function EmployeeDrawer(props: {
+  employeeId: string;
+  departments: Department[];
+  isAdmin: boolean;
+  onClose: () => void;
+  onUpdated: () => void;
+}) {
+  const { employeeId, departments, isAdmin, onClose, onUpdated } = props;
+  const { message } = App.useApp();
+  const [detail, setDetail] = useState<Employee | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [form] = Form.useForm();
+
+  const load = useCallback(async () => {
+    setDetail(null);
+    try {
+      const data = await apiGet<Employee>(`/api/employees/${employeeId}`);
+      setDetail(data);
+      form.setFieldsValue(data);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '加载员工详情失败');
+    }
+  }, [employeeId, form, message]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleSave = async () => {
+    const values = await form.validateFields();
+    setDetail(null);
+    try {
+      await apiPatch(`/api/employees/${employeeId}`, values);
+      message.success('员工信息已更新');
+      setEditing(false);
+      await load();
+      onUpdated();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '更新失败');
+    }
+  };
+
+  return (
+    <Drawer
+      open
+      onClose={onClose}
+      title={null}
+      styles={{ body: { padding: 0 }, wrapper: { width: 480 } }}
+      extra={
+        editing ? (
+          <Space>
+            <Button onClick={() => { setEditing(false); form.setFieldsValue(detail); }}>取消</Button>
+            <Button type="primary" onClick={handleSave}>保存</Button>
+          </Space>
+        ) : isAdmin ? (
+          <Button type="primary" icon={<EditOutlined />} onClick={() => setEditing(true)}>
+            编辑
+          </Button>
+        ) : null
+      }
+    >
+      {detail ? (
+        <Flex vertical>
+          {/* 头部信息卡 */}
+          <Flex align="center" gap={16} style={{ padding: '24px 24px 20px', background: 'var(--color-primary-bg-soft)', borderBottom: '1px solid var(--color-border)' }}>
+            <Avatar size={64} style={{ background: detail.role === 'ADMIN' ? '#1677ff' : '#4e5969', fontSize: 24 }}>
+              {detail.name.charAt(0)}
+            </Avatar>
+            <Flex vertical gap={6} style={{ minWidth: 0 }}>
+              <Space size={8}>
+                <span style={{ fontSize: 18, fontWeight: 600 }}>{detail.name}</span>
+                <Tag color={detail.role === 'ADMIN' ? 'blue' : 'default'}>{ROLE_LABEL[detail.role] ?? detail.role}</Tag>
+              </Space>
+              <Typography.Text type="secondary">{detail.title} · {detail.departmentName}</Typography.Text>
+            </Flex>
+          </Flex>
+
+          {editing ? (
+            <Form form={form} layout="vertical" style={{ padding: 20 }} initialValues={detail}>
+              <Form.Item name="userNo" label="工号（登录账号）" rules={[{ required: true, message: '请输入工号' }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="name" label="姓名" rules={[{ required: true, message: '请输入姓名' }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="departmentId" label="部门" rules={[{ required: true, message: '请选择部门' }]}>
+                <Select options={departments.map((d) => ({ value: d.id, label: d.name }))} />
+              </Form.Item>
+              <Form.Item name="title" label="职位" rules={[{ required: true, message: '请输入职位' }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name="phone" label="手机">
+                <Input />
+              </Form.Item>
+              <Form.Item name="email" label="邮箱">
+                <Input placeholder="留空则重置为 工号@oa.local" />
+              </Form.Item>
+              <Form.Item name="role" label="角色" rules={[{ required: true }]}>
+                <Select options={[{ value: 'EMPLOYEE', label: '员工' }, { value: 'ADMIN', label: '管理员' }]} />
+              </Form.Item>
+              <Form.Item name="password" label="重置密码">
+                <Input.Password placeholder="留空则不修改密码" autoComplete="new-password" />
+              </Form.Item>
+            </Form>
+          ) : (
+            <Flex vertical gap={20} style={{ padding: 20 }}>
+              <Descriptions column={1} size="small" colon={false}>
+                <Descriptions.Item label={<Space size={4}><UserOutlined />工号</Space>}>{detail.userNo}</Descriptions.Item>
+                <Descriptions.Item label={<Space size={4}><PhoneOutlined />手机</Space>}>{detail.phone || '-'}</Descriptions.Item>
+                <Descriptions.Item label={<Space size={4}><MailOutlined />邮箱</Space>}>{detail.email || '-'}</Descriptions.Item>
+              </Descriptions>
+            </Flex>
+          )}
+        </Flex>
+      ) : (
+        <Flex align="center" justify="center" style={{ padding: 40 }}>
+          <Typography.Text type="secondary">加载中...</Typography.Text>
+        </Flex>
+      )}
+    </Drawer>
   );
 }
 
@@ -170,27 +320,6 @@ function CreateEmployeeModal(props: { departments: Department[]; onClose: () => 
           <Input.Password placeholder="默认 123456" />
         </Form.Item>
       </Form>
-    </Modal>
-  );
-}
-
-// 员工详情弹窗
-function DetailModal(props: { detail: Employee | null; onClose: () => void }) {
-  const { detail, onClose } = props;
-  return (
-    <Modal title={detail ? detail.name : '员工详情'} open onCancel={onClose} footer={null} width={520}>
-      {detail ? (
-        <Descriptions column={1} size="small">
-          <Descriptions.Item label="工号">{detail.userNo}</Descriptions.Item>
-          <Descriptions.Item label="部门">{detail.departmentName}</Descriptions.Item>
-          <Descriptions.Item label="职位">{detail.title}</Descriptions.Item>
-          <Descriptions.Item label="角色">{ROLE_LABEL[detail.role] ?? detail.role}</Descriptions.Item>
-          <Descriptions.Item label="手机">{detail.phone || '-'}</Descriptions.Item>
-          <Descriptions.Item label="邮箱">{detail.email || '-'}</Descriptions.Item>
-        </Descriptions>
-      ) : (
-        <Typography.Text type="secondary">加载中...</Typography.Text>
-      )}
     </Modal>
   );
 }

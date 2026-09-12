@@ -356,6 +356,37 @@ app.post('/api/employees', requireRole('ADMIN'), (req, res) => {
   });
 });
 
+// 更新员工信息（管理员）：工号即登录账号，改工号需唯一校验（排除自身）；密码留空则不修改
+app.patch('/api/employees/:id', requireRole('ADMIN'), (req, res) => {
+  const emp = store.employees.get(req.params.id);
+  if (!emp) {
+    throw new BusinessError(404, '员工不存在');
+  }
+  const b = req.body ?? {};
+  const userNo = b.userNo !== undefined ? String(b.userNo).trim() : emp.userNo;
+  const name = b.name !== undefined ? String(b.name).trim() : emp.name;
+  const departmentId = b.departmentId !== undefined ? String(b.departmentId).trim() : emp.departmentId;
+  const title = b.title !== undefined ? String(b.title).trim() : emp.title;
+  if (!userNo || !name || !departmentId || !title) {
+    throw new BusinessError(400, '工号、姓名、部门、职位不能为空');
+  }
+  if ([...store.employees.values()].some((e) => e.userNo === userNo && e.id !== emp.id)) {
+    throw new BusinessError(400, `工号 ${userNo} 已存在`);
+  }
+  if (!store.departments.has(departmentId)) {
+    throw new BusinessError(400, '部门不存在');
+  }
+  emp.userNo = userNo;
+  emp.name = name;
+  emp.departmentId = departmentId;
+  emp.title = title;
+  if (b.phone !== undefined) emp.phone = String(b.phone).trim();
+  if (b.email !== undefined) emp.email = String(b.email).trim() || `${userNo}@oa.local`;
+  if (b.role !== undefined) emp.role = b.role === 'ADMIN' ? 'ADMIN' : 'EMPLOYEE';
+  if (b.password !== undefined && String(b.password).trim() !== '') emp.password = String(b.password);
+  res.json(ok(sanitizeEmployee(emp)));
+});
+
 // ---------- 知识库 ----------
 
 app.get('/api/knowledge', (req, res) => {
