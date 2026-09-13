@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "eval": "tsx src/eval/run.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

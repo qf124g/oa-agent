@@ -3,13 +3,12 @@ import type {
   ChatCompletionMessageParam,
   ChatCompletionMessageToolCall,
 } from 'openai/resources/chat/completions';
-import type { Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { config } from './config';
 import { buildSystemPrompt } from './prompts';
 import { TOOL_DEFINITIONS, isWriteTool, WRITE_TOOL_META, type WriteToolMeta } from './tools/definitions';
 import { executeTool, stringifyToolResult } from './tools/executor';
-import { writeSSE } from './sse';
+import type { SSEEvent } from './sse';
 import { truncateIfNeeded, type Session } from './session';
 
 // 单轮对话内允许的最大工具调用轮次，防止死循环
@@ -31,8 +30,11 @@ interface ToolCallAccum {
   function: { name: string; arguments: string };
 }
 
+// 事件输出回调：解耦 agent 循环与 SSE/HTTP 输出，在线走 SSE，离线评测走事件收集器
+export type EventSink = (event: SSEEvent) => void;
+
 export interface AgentLoopOptions {
-  res: Response;
+  emit: EventSink;
   session: Session;
   sessionId: string;
   signal: AbortSignal;
@@ -44,7 +46,7 @@ export interface AgentLoopOptions {
 // 3. 模型发起工具调用时，只读工具直接执行（HTTP 调平台后端），写工具被拦截发确认请求
 // 4. 模型给出纯文本回答时结束循环
 export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
-  const { res, session, sessionId, signal } = opts;
+  const { emit, session, sessionId, signal } = opts;
   const history = session.history;
   truncateIfNeeded(history);
 
@@ -54,7 +56,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
       ...history,
     ];
 
-    writeSSE(res, {
+    emit({
       type: 'log',
       step: round,
       title: `第 ${round} 步：模型思考`,
@@ -71,7 +73,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
       { signal }
     );
 
-    writeSSE(res, { type: 'message_start', role: 'assistant' });
+    emit({ type: 'message_start', role: 'assistant' });
 
     let content = '';
     const toolCalls: ToolCallAccum[] = [];
@@ -81,7 +83,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
       if (!delta) continue;
       if (delta.content) {
         content += delta.content;
-        writeSSE(res, { type: 'message_delta', content: delta.content });
+        emit({ type: 'message_delta', content: delta.content });
       }
       if (delta.tool_calls) {
         for (const tc of delta.tool_calls) {
@@ -96,7 +98,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
       }
     }
 
-    writeSSE(res, {
+    emit({
       type: 'log',
       step: round,
       title: `第 ${round} 步：模型回复（流式）`,
@@ -107,7 +109,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
     // 纯文本回答：写入会话历史并结束循环
     if (toolCalls.length === 0) {
       history.push({ role: 'assistant', content });
-      writeSSE(res, { type: 'message_end', finishReason: 'stop' });
+      emit({ type: 'message_end', finishReason: 'stop' });
       return;
     }
 
@@ -127,7 +129,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
     const writeIdx = parsed.findIndex((p) => isWriteTool(p.name));
 
     for (const p of parsed) {
-      writeSSE(res, {
+      emit({
         type: 'log',
         step: round,
         title: `第 ${round} 步：决策工具 ${p.name}`,
@@ -136,12 +138,12 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
       });
     }
 
-    writeSSE(res, { type: 'message_end', finishReason: writeIdx === -1 ? 'tool_calls' : 'confirmation_required' });
+    emit({ type: 'message_end', finishReason: writeIdx === -1 ? 'tool_calls' : 'confirmation_required' });
 
     // 全部只读：顺序执行后进入下一轮
     if (writeIdx === -1) {
       for (const p of parsed) {
-        await runAndEmit(res, session, p.call.id, p.name, p.args, round);
+        await runAndEmit(emit, session, p.call.id, p.name, p.args, round);
       }
       continue;
     }
@@ -149,7 +151,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
     // 存在写工具：先执行只读工具（无副作用），再拦截写工具发确认请求
     for (let i = 0; i < parsed.length; i++) {
       if (isWriteTool(parsed[i].name)) continue;
-      await runAndEmit(res, session, parsed[i].call.id, parsed[i].name, parsed[i].args, round);
+      await runAndEmit(emit, session, parsed[i].call.id, parsed[i].name, parsed[i].args, round);
     }
 
     const write = parsed[writeIdx];
@@ -167,7 +169,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
     };
     session.pendingConfirmation = pending;
 
-    writeSSE(res, {
+    emit({
       type: 'log',
       step: round,
       title: `第 ${round} 步：等待用户确认`,
@@ -175,7 +177,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
       data: write.args,
     });
 
-    writeSSE(res, {
+    emit({
       type: 'confirmation_request',
       sessionId,
       confirmId: pending.confirmId,
@@ -189,35 +191,35 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
     return;
   }
 
-  writeSSE(res, { type: 'error', message: '工具调用轮次超过上限，请换个更具体的问题试试' });
+  emit({ type: 'error', message: '工具调用轮次超过上限，请换个更具体的问题试试' });
 }
 
 // 续传：用户确认（或取消）后执行真正落库 / 构造取消结果，再续跑主循环产出最终答复
 export async function resumeAfterConfirmation(opts: {
-  res: Response;
+  emit: EventSink;
   session: Session;
   sessionId: string;
   confirmId: string;
   approved: boolean;
   signal: AbortSignal;
 }): Promise<void> {
-  const { res, session, sessionId, confirmId, approved, signal } = opts;
+  const { emit, session, sessionId, confirmId, approved, signal } = opts;
   const pending = session.pendingConfirmation;
   if (!pending || pending.confirmId !== confirmId || pending.expiresAt < Date.now()) {
-    writeSSE(res, { type: 'error', message: '确认请求不存在或已过期' });
+    emit({ type: 'error', message: '确认请求不存在或已过期' });
     return;
   }
   const step = pending.step;
   session.pendingConfirmation = null;
 
-  writeSSE(res, {
+  emit({
     type: 'confirmation_result',
     sessionId,
     confirmId,
     approved,
     rejectedReason: approved ? '' : '用户取消',
   });
-  writeSSE(res, {
+  emit({
     type: 'log',
     step,
     title: `第 ${step} 步：${approved ? '用户已确认' : '用户已取消'}`,
@@ -234,7 +236,7 @@ export async function resumeAfterConfirmation(opts: {
     result = { cancelled: true, message: '用户已取消该操作' };
   }
 
-  writeSSE(res, {
+  emit({
     type: 'log',
     step,
     title: `第 ${step} 步：工具返回 ${pending.toolName}`,
@@ -249,22 +251,22 @@ export async function resumeAfterConfirmation(opts: {
     content: stringifyToolResult(result),
   });
 
-  await runAgentLoop({ res, session, sessionId, signal });
+  await runAgentLoop({ emit, session, sessionId, signal });
 }
 
 // 执行单个工具并回传结果，同时把 tool 结果写入会话历史
 async function runAndEmit(
-  res: Response,
+  emit: EventSink,
   session: Session,
   toolCallId: string,
   name: string,
   args: Record<string, unknown>,
   step: number
 ): Promise<void> {
-  writeSSE(res, { type: 'tool_call', toolCallId, name, arguments: args });
+  emit({ type: 'tool_call', toolCallId, name, arguments: args });
   const { ok, result } = await executeTool(name, args, { token: session.token });
-  writeSSE(res, { type: 'tool_result', toolCallId, name, ok, result });
-  writeSSE(res, {
+  emit({ type: 'tool_result', toolCallId, name, ok, result });
+  emit({
     type: 'log',
     step,
     title: `第 ${step} 步：工具返回 ${name}`,

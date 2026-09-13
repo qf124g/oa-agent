@@ -110,7 +110,7 @@ app.post('/api/chat', async (req, res) => {
   });
 
   try {
-    await runAgentLoop({ res, session, sessionId: finalSessionId, signal: abortController.signal });
+    await runAgentLoop({ emit: (e) => writeSSE(res, e), session, sessionId: finalSessionId, signal: abortController.signal });
   } catch (err) {
     if (!abortController.signal.aborted) {
       writeSSE(res, { type: 'error', message: `服务异常: ${err instanceof Error ? err.message : String(err)}` });
@@ -166,7 +166,7 @@ app.post('/api/chat/confirm', async (req, res) => {
 
   try {
     await resumeAfterConfirmation({
-      res,
+      emit: (e) => writeSSE(res, e),
       session,
       sessionId,
       confirmId,
