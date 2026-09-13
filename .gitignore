@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .env
+
+# 后端数据快照（运行时数据，含明文密码，勿提交）
+backend/data/
 *.log
 .DS_Store
 

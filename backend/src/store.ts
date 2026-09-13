@@ -1,3 +1,6 @@
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { plusDays } from './common';
 import type {
   Announcement,
@@ -13,6 +16,47 @@ import type {
   TodoTask,
 } from './types';
 
+// 磁盘快照路径：backend/data/store.json（相对源码目录上跳一级）
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const DATA_FILE = join(__dirname, '..', 'data', 'store.json');
+
+// 磁盘快照结构：Map -> 对象映射（key 为实体 id）
+interface SnapshotData {
+  idSeq: number;
+  departments: Record<string, Department>;
+  employees: Record<string, Employee>;
+  todos: Record<string, TodoTask>;
+  approvals: Record<string, ApprovalRequest>;
+  announcements: Record<string, Announcement>;
+  knowledgeDocs: Record<string, KnowledgeDocument>;
+}
+
+// 变更后自动落盘的 Map 封装
+class PersistentMap<K, V> extends Map<K, V> {
+  private onMutate: (() => void) | null = null;
+
+  arm(fn: () => void): void {
+    this.onMutate = fn;
+  }
+
+  override set(key: K, value: V): this {
+    super.set(key, value);
+    this.onMutate?.();
+    return this;
+  }
+
+  override delete(key: K): boolean {
+    const removed = super.delete(key);
+    if (removed) this.onMutate?.();
+    return removed;
+  }
+
+  override clear(): void {
+    super.clear();
+    this.onMutate?.();
+  }
+}
+
 // 提取 id 末尾的数字部分，如 "E004" -> 4
 function numericSuffix(id: string): number {
   const match = /\d+$/.exec(id);
@@ -21,19 +65,24 @@ function numericSuffix(id: string): number {
 
 // 内存数据存储：各实体 Map + 种子数据 + id 生成
 export class InMemoryStore {
-  departments = new Map<string, Department>();
-  employees = new Map<string, Employee>();
-  todos = new Map<string, TodoTask>();
-  approvals = new Map<string, ApprovalRequest>();
-  announcements = new Map<string, Announcement>();
-  knowledgeDocs = new Map<string, KnowledgeDocument>();
+  departments = new PersistentMap<string, Department>();
+  employees = new PersistentMap<string, Employee>();
+  todos = new PersistentMap<string, TodoTask>();
+  approvals = new PersistentMap<string, ApprovalRequest>();
+  announcements = new PersistentMap<string, Announcement>();
+  knowledgeDocs = new PersistentMap<string, KnowledgeDocument>();
 
   private idSeq = 0;
 
   constructor() {
-    this.initSeedData();
-    // 让自增 id 从现有种子数据最大编号之后开始，避免新建记录覆盖已有数据
-    this.idSeq = this.maxExistingNumber();
+    const restored = this.load();
+    if (!restored) {
+      this.initSeedData();
+      // 让自增 id 从现有种子数据最大编号之后开始，避免新建记录覆盖已有数据
+      this.idSeq = this.maxExistingNumber();
+    }
+    this.arm();
+    if (!restored) this.persist();
   }
 
   // 生成带前缀的自增 id，如 T005
@@ -52,6 +101,60 @@ export class InMemoryStore {
       ...this.knowledgeDocs.keys(),
     ];
     return allIds.reduce((max, id) => Math.max(max, numericSuffix(id)), 0);
+  }
+
+  // 开启所有 Map 的变更自动落盘
+  private arm(): void {
+    const save = () => this.persist();
+    this.departments.arm(save);
+    this.employees.arm(save);
+    this.todos.arm(save);
+    this.approvals.arm(save);
+    this.announcements.arm(save);
+    this.knowledgeDocs.arm(save);
+  }
+
+  // 从磁盘加载快照；文件不存在或损坏时返回 false（走种子初始化）
+  private load(): boolean {
+    try {
+      const raw = readFileSync(DATA_FILE, 'utf8');
+      const s = JSON.parse(raw) as SnapshotData;
+      this.idSeq = typeof s.idSeq === 'number' ? s.idSeq : 0;
+      this.hydrate(this.departments, s.departments);
+      this.hydrate(this.employees, s.employees);
+      this.hydrate(this.todos, s.todos);
+      this.hydrate(this.approvals, s.approvals);
+      this.hydrate(this.announcements, s.announcements);
+      this.hydrate(this.knowledgeDocs, s.knowledgeDocs);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // 将对象映射回填进 Map
+  private hydrate<V>(map: PersistentMap<string, V>, obj: Record<string, V> | undefined): void {
+    if (!obj) return;
+    for (const [k, v] of Object.entries(obj)) {
+      map.set(k, v);
+    }
+  }
+
+  // 落盘：先写临时文件再原子重命名，避免中途崩溃损坏快照
+  private persist(): void {
+    const snapshot: SnapshotData = {
+      idSeq: this.idSeq,
+      departments: Object.fromEntries(this.departments),
+      employees: Object.fromEntries(this.employees),
+      todos: Object.fromEntries(this.todos),
+      approvals: Object.fromEntries(this.approvals),
+      announcements: Object.fromEntries(this.announcements),
+      knowledgeDocs: Object.fromEntries(this.knowledgeDocs),
+    };
+    mkdirSync(dirname(DATA_FILE), { recursive: true });
+    const tmp = `${DATA_FILE}.tmp`;
+    writeFileSync(tmp, JSON.stringify(snapshot, null, 2), 'utf8');
+    renameSync(tmp, DATA_FILE);
   }
 
   // 按员工 id 取姓名
