@@ -70,4 +70,53 @@
 ```bash
 npm run dev -w agent-server     # 开发模式（tsx watch）
 npm run start -w agent-server   # 生产模式
+npm run eval -w agent-server -- <token>   # 离线评测（见下方）
 ```
+
+## 离线评测（评测平台）
+
+不经过 HTTP/SSE，直接驱动 agent 循环跑评测集，用于回归验证工具调用与回答质量。核心文件：
+
+- 用例定义 [src/eval/cases.ts](./src/eval/cases.ts)：输入问题 + 期望工具 + 期望/禁止关键词
+- 运行器 [src/eval/runner.ts](./src/eval/runner.ts)：驱动 agent-loop、收集事件并按规则判定
+- CLI 入口 [src/eval/run.ts](./src/eval/run.ts)：登录校验 + 批量执行 + 汇总退出码
+
+执行流程：
+
+```
+登录拿 token → 切换 Node 20 → npm run eval -- <token> → 逐用例跑 agent-loop → 规则判定 → PASS/FAIL 汇总
+```
+
+前置条件：
+
+| 条件 | 说明 |
+|---|---|
+| 业务后端已运行 | :8080，评测中的只读工具会真实调用后端 |
+| Node >= 18 | 依赖全局 fetch；默认 shell 为 Node 16 时需先 `nvm use 20` |
+| 有效 token | 评测按登录用户身份执行，token 需在 backend 登录获取 |
+
+执行：
+
+```bash
+# 1. 切换 Node 版本（默认 shell 为 16 时需要）
+nvm use 20
+
+# 2. 登录拿 token（seed 密码 123456）
+curl -s -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"123456"}'
+
+# 3. 运行评测（token 为上面返回的 data.token）
+npm run eval -- <token>
+
+# 环境变量方式
+EVAL_TOKEN=<token> npm run eval
+
+# 可选：写操作用例自动同意（默认 false，写用例自动取消、不落库）
+EVAL_AUTO_APPROVE=true npm run eval -- <token>
+```
+
+判定规则：
+
+1. 工具命中：实际调用工具需覆盖 `expectTools` 全部项（写工具从 confirmation_request 中判定）
+2. 关键词：`expectKeywords` 需全部命中，`forbidKeywords` 需全部不出现
