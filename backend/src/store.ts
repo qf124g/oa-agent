@@ -202,20 +202,12 @@ export class InMemoryStore {
     this.announcements.set('N001', this.announcement('N001', '中秋放假通知', '根据国家法定节假日安排，中秋节放假三天，请各部门提前做好工作安排。', 'E001', true, now));
     this.announcements.set('N002', this.announcement('N002', '新员工入职指引', '欢迎加入公司，请在入职当日完成设备领取、账号开通及入职培训。', 'E003', false, now));
 
-    // 知识库文档（作为 RAG 的知识源）
-    this.knowledgeDocs.set('K001', this.knowledge('K001', '考勤管理制度', '制度',
-      '公司实行标准工时制，工作时间 09:00 至 18:00，午休 12:00 至 13:30。' +
-      '员工迟到 30 分钟以内记一次迟到，每月迟到三次及以上将影响当月绩效。' +
-      '请假需提前一天在系统提交申请，审批通过后方可休假。' +
-      '加班需提前报备并记录，加班工时可用于调休。', 'E003', now));
-    this.knowledgeDocs.set('K002', this.knowledge('K002', '报销流程说明', '流程',
-      '报销申请需在费用发生后 30 天内提交。发票抬头为公司全称，金额需与申请一致。' +
-      '差旅报销需附行程单和住宿发票，餐饮招待费需注明事由和参与人员。' +
-      '报销审批由部门负责人和财务主管两级审批，金额超过 5000 元需总经理审批。' +
-      '审批通过后财务在 5 个工作日内打款。', 'E004', now));
-    this.knowledgeDocs.set('K003', this.knowledge('K003', '办公环境 FAQ', 'FAQ',
-      '办公区 Wi-Fi 账号为 OA-Guest，密码前台领取。打印机位于每层茶水间旁。' +
-      '会议室通过系统在线预约，单次会议不超过 2 小时。访客需前台登记并领取临时门禁卡。', 'E003', now));
+    // 知识库文档不再写死在代码里：由启动时扫描 backend/seed/knowledge/ 下的 PDF/MD 加载（见 seed-knowledge.ts）
+  }
+
+  // 将 idSeq 提升到当前所有实体最大编号之上，避免后续 nextId 与外部注入的固定 id（如知识库 seed）冲突
+  syncIdSeq(): void {
+    this.idSeq = Math.max(this.idSeq, this.maxExistingNumber());
   }
 
   private employee(id: string, userNo: string, name: string, departmentId: string, title: string, phone: string, role: Role): Employee {
@@ -233,10 +225,6 @@ export class InMemoryStore {
 
   private announcement(id: string, title: string, content: string, authorId: string, pinned: boolean, publishedAt: number): Announcement {
     return { id, title, content, authorId, pinned, publishedAt, authorName: '' };
-  }
-
-  private knowledge(id: string, title: string, category: string, content: string, uploadedBy: string, createdAt: number): KnowledgeDocument {
-    return { id, title, content, category, uploadedBy, createdAt, updatedAt: createdAt, uploadedByName: '' };
   }
 }
 

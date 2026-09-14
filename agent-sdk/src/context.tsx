@@ -50,6 +50,10 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
   const abortRef = useRef<AbortController | null>(null);
   const openRef = useRef(false);
   const finalContentRef = useRef('');
+  // 当前流式消息 id（用于 message_delta 累积与工具调用按 id 定位，避免与 rAF flush 竞态）
+  const streamingMsgIdRef = useRef<string | null>(null);
+  // 是否已调度了一帧内的文本刷新（合并高频 delta 为每帧一次渲染）
+  const rafPendingRef = useRef(false);
   // 鉴权头回调可能是不稳定的内联函数，用 ref 读取避免事件通道反复重连
   const getAuthHeadersRef = useRef(getAuthHeaders);
   getAuthHeadersRef.current = getAuthHeaders;
@@ -92,6 +96,24 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
     });
     return () => controller.abort();
   }, [url]);
+
+  // 把当前累积的流式文本一次性落到对应消息上（帧节流，避免每个 delta 都触发整体重渲染）
+  const flushStreamingText = useCallback(() => {
+    rafPendingRef.current = false;
+    const id = streamingMsgIdRef.current;
+    if (!id) return;
+    const text = finalContentRef.current;
+    setMessages((prev) =>
+      prev.map((m) => (m.kind === 'message' && m.id === id ? { ...m, content: text } : m))
+    );
+  }, []);
+
+  // 请求在下一帧刷新流式文本：同一帧内多次 delta 只触发一次 setState
+  const scheduleFlush = useCallback(() => {
+    if (rafPendingRef.current) return;
+    rafPendingRef.current = true;
+    requestAnimationFrame(() => flushStreamingText());
+  }, [flushStreamingText]);
 
   // SSE 事件归约：把服务端事件流映射为消息视图与确认状态的更新
   const handleEvent = useCallback((event: SSEEvent) => {
@@ -153,68 +175,58 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
       return;
     }
     if (event.type === 'message_start') {
+      streamingMsgIdRef.current = createId();
       finalContentRef.current = '';
       if (!openRef.current) setUnreadCount((c) => c + 1);
     }
     if (event.type === 'message_delta') {
       finalContentRef.current += event.content;
+      scheduleFlush();
     }
     if (event.type === 'done') {
       console.log('[agent] 助手最终返回：', finalContentRef.current);
+      flushStreamingText();
     }
     setMessages((prev) => {
       switch (event.type) {
-        // 新建一条助手消息
+        // 新建一条助手消息（id 记录在 streamingMsgIdRef，供 delta 刷新与工具调用定位）
         case 'message_start':
           return [
             ...prev,
-            { id: createId(), kind: 'message', role: 'assistant', content: '', toolCalls: [], createdAt: Date.now() },
+            { id: streamingMsgIdRef.current ?? createId(), kind: 'message', role: 'assistant', content: '', toolCalls: [], createdAt: Date.now() },
           ];
-        // 文本增量追加到最后一条助手消息
-        case 'message_delta': {
-          if (prev.length === 0) return prev;
-          const last = prev[prev.length - 1];
-          if (last.kind !== 'message' || last.role !== 'assistant') return prev;
-          const next = [...prev];
-          next[next.length - 1] = { ...last, content: last.content + event.content };
-          return next;
-        }
+        // message_delta 已通过帧节流在 flushStreamingText 中更新，此处不再逐个追加
         // 新增一个运行中的工具调用块
         case 'tool_call': {
-          if (prev.length === 0) return prev;
-          const last = prev[prev.length - 1];
-          if (last.kind !== 'message' || last.role !== 'assistant') return prev;
-          const next = [...prev];
-          next[next.length - 1] = {
-            ...last,
-            toolCalls: [
-              ...last.toolCalls,
-              { toolCallId: event.toolCallId, name: event.name, arguments: event.arguments, status: 'running' },
-            ],
-          };
-          return next;
+          const id = streamingMsgIdRef.current;
+          if (!id) return prev;
+          const toolCall = { toolCallId: event.toolCallId, name: event.name, arguments: event.arguments, status: 'running' as const };
+          return prev.map((m) =>
+            m.kind === 'message' && m.id === id ? { ...m, toolCalls: [...m.toolCalls, toolCall] } : m
+          );
         }
         // 更新对应工具调用块的状态与结果
         case 'tool_result': {
-          if (prev.length === 0) return prev;
-          const last = prev[prev.length - 1];
-          if (last.kind !== 'message' || last.role !== 'assistant') return prev;
-          const next = [...prev];
-          next[next.length - 1] = {
-            ...last,
-            toolCalls: last.toolCalls.map((tc) =>
-              tc.toolCallId === event.toolCallId
-                ? { ...tc, status: event.ok ? 'success' : 'error', result: event.result }
-                : tc
-            ),
-          };
-          return next;
+          const id = streamingMsgIdRef.current;
+          if (!id) return prev;
+          return prev.map((m) =>
+            m.kind === 'message' && m.id === id
+              ? {
+                  ...m,
+                  toolCalls: m.toolCalls.map((tc) =>
+                    tc.toolCallId === event.toolCallId
+                      ? { ...tc, status: event.ok ? 'success' : 'error', result: event.result }
+                      : tc
+                  ),
+                }
+              : m
+          );
         }
         default:
           return prev;
       }
     });
-  }, []);
+  }, [scheduleFlush, flushStreamingText]);
 
   // 发送用户消息：本地立即上屏，随后消费 SSE 事件流
   const sendMessage = useCallback(

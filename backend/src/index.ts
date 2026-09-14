@@ -6,6 +6,8 @@ import { BusinessError, ok, fail, paginate, asInt, str, plusDays } from './commo
 import { store } from './store';
 import { tokenStore } from './auth';
 import { emitDomainEvent } from './notify';
+import { extractTextFromBuffer } from './extract-text';
+import { loadKnowledgeSeed } from './seed-knowledge';
 import type {
   ApprovalRequest,
   AuthUser,
@@ -393,24 +395,6 @@ app.patch('/api/employees/:id', requireRole('ADMIN'), (req, res) => {
 // 文件上传（内存存储，10MB 上限）
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-// 从上传文件解析纯文本：txt/md 直接 UTF-8 解码，PDF 用 pdf-parse，docx 用 mammoth
-async function extractText(file: Express.Multer.File): Promise<string> {
-  const name = file.originalname.toLowerCase();
-  if (name.endsWith('.pdf')) {
-    const { PDFParse } = await import('pdf-parse');
-    const parser = new PDFParse({ data: file.buffer });
-    const result = await parser.getText();
-    await parser.destroy();
-    return result.text ?? '';
-  }
-  if (name.endsWith('.docx')) {
-    const mammoth = await import('mammoth');
-    const result = await mammoth.extractRawText({ buffer: file.buffer });
-    return result.value ?? '';
-  }
-  return file.buffer.toString('utf8');
-}
-
 // 知识库写操作后：发送 knowledge.updated 事件（携带全量文档正文），驱动 agent-server 实时重建向量索引
 function emitKnowledgeEvent(req: Request): void {
   const docs = [...store.knowledgeDocs.values()].map((k) => ({
@@ -508,7 +492,7 @@ app.post('/api/knowledge/upload', requireRole('ADMIN'), upload.single('file'), a
       return;
     }
     const title = str(req.body.title) || file.originalname.replace(/\.[^.]+$/, '');
-    const content = await extractText(file);
+    const content = await extractTextFromBuffer(file.buffer, file.originalname);
     if (!content.trim()) {
       res.json(fail(400, '未能从文件中解析出文本，请确认文件内容为可提取的文本'));
       return;
@@ -632,6 +616,13 @@ function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFun
 app.use(errorHandler);
 
 const PORT = Number(process.env.PORT || 8080);
-app.listen(PORT, () => {
-  console.log(`[backend] 已启动，监听端口 ${PORT}`);
-});
+
+// 启动：先加载知识库 seed（PDF/MD），再开始监听端口
+async function bootstrap(): Promise<void> {
+  await loadKnowledgeSeed();
+  app.listen(PORT, () => {
+    console.log(`[backend] 已启动，监听端口 ${PORT}`);
+  });
+}
+
+void bootstrap();

@@ -3,6 +3,7 @@ import { useAgent } from '../useAgent';
 import type { LogEntry } from '../types';
 import { ToolCallBlock } from './ToolCallBlock';
 import { ConfirmCard } from './ConfirmCard';
+import { MarkdownContent } from './MarkdownContent';
 import './agent-chat.css';
 
 export interface ChatPanelProps {
@@ -81,7 +82,13 @@ export function ChatPanel(props: ChatPanelProps) {
                   {item.content ? (
                     <div className="agent-chat-bubble">
                       {item.notify && <span className="agent-chat-notify-tag">提醒</span>}
-                      {item.content}
+                      {item.role === 'assistant' ? (
+                        <div className="agent-chat-markdown">
+                          <MarkdownContent content={item.content} />
+                        </div>
+                      ) : (
+                        item.content
+                      )}
                     </div>
                   ) : null}
                   {item.actions && item.actions.length > 0 && (

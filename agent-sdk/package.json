@@ -5,6 +5,16 @@
   "description": "React 版 Agent 助手 SDK：可嵌入任意 React 应用，提供悬浮聊天助手组件",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "dependencies": {
+    "katex": "^0.16.11",
+    "react-markdown": "^9.0.1",
+    "rehype-katex": "^7.0.0",
+    "remark-gfm": "^4.0.0",
+    "remark-math": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/katex": "^0.16.7"
+  },
   "peerDependencies": {
     "react": "^18.0.0",
     "react-dom": "^18.0.0"
