@@ -235,6 +235,19 @@
   margin-bottom: 4px;
 }
 
+/* 图表生成占位 */
+.agent-chat-chart-pending {
+  height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  background: var(--color-primary-bg-soft);
+  border: 1px dashed var(--color-primary-border-hover);
+  border-radius: 8px;
+}
+
 .agent-chat-typing {
   color: var(--color-text-tertiary);
   font-size: 13px;
