@@ -121,3 +121,169 @@ body {
   overflow-y: auto;
   margin: 0;
 }
+
+/* ===== 全局布局壳（顶栏 / 侧边栏 / 内容区） ===== */
+.app-layout.ant-layout {
+  min-height: 100vh;
+}
+
+.app-sider {
+  border-right: 1px solid var(--color-border);
+}
+
+.app-menu {
+  border-inline-end: none !important;
+}
+
+.app-header.ant-layout-header {
+  background: var(--color-bg-container);
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--color-border);
+  height: 56px;
+  line-height: 56px;
+}
+
+.app-header-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.app-header-user {
+  margin-left: auto;
+}
+
+.app-header-user-btn {
+  height: 40px;
+}
+
+.app-header-avatar {
+  background: var(--color-primary);
+}
+
+.app-content {
+  padding: 24px;
+}
+
+/* ===== 通用工具类 ===== */
+.ant-typography.page-title {
+  margin: 0;
+}
+
+.mb-12 {
+  margin-bottom: 12px;
+}
+
+.mb-16 {
+  margin-bottom: 16px;
+}
+
+.mr-8 {
+  margin-right: 8px;
+}
+
+.mt-16 {
+  margin-top: 16px;
+}
+
+.w-140 {
+  width: 140px;
+}
+
+.w-160 {
+  width: 160px;
+}
+
+.w-220 {
+  width: 220px;
+}
+
+.w-240 {
+  width: 240px;
+}
+
+.w-full {
+  width: 100% !important;
+}
+
+.p-0 {
+  padding: 0 !important;
+}
+
+/* ===== 头像（按角色着色） ===== */
+.avatar-admin {
+  background: var(--color-primary);
+}
+
+.avatar-muted {
+  background: var(--color-text-secondary);
+}
+
+.avatar-lg {
+  font-size: 24px;
+}
+
+/* ===== 登录页 ===== */
+.login-card {
+  width: 380px;
+  box-shadow: 0 8px 24px rgba(22, 119, 255, 0.10);
+}
+
+.ant-typography.login-title {
+  text-align: center;
+  color: var(--color-primary);
+  margin-bottom: 4px;
+}
+
+.ant-typography.login-subtitle {
+  display: block;
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.ant-typography.login-hint {
+  display: block;
+  text-align: center;
+  margin-top: 16px;
+  font-size: 12px;
+}
+
+/* ===== 人员详情抽屉 ===== */
+.employee-drawer .ant-drawer-body {
+  padding: 0;
+}
+
+.directory-drawer-head {
+  padding: 24px 24px 20px;
+  background: var(--color-primary-bg-soft);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.directory-drawer-info {
+  min-width: 0;
+}
+
+.directory-drawer-name {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.directory-drawer-body {
+  padding: 20px;
+}
+
+.directory-drawer-empty {
+  padding: 40px;
+}
+
+/* ===== 统计卡片（主色数值） ===== */
+.stat-value-primary .ant-statistic-content-value {
+  color: var(--color-primary);
+}
+
+/* ===== 审批发起表单 ===== */
+.approval-form {
+  max-width: 520px;
+}

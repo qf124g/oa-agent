@@ -5,7 +5,7 @@ export default function StatCard(props: { label: string; value: number | string;
   const { label, value, suffix } = props;
   return (
     <Card size="small">
-      <Statistic title={label} value={value} suffix={suffix} styles={{ value: { color: '#1677ff' } }} />
+      <Statistic title={label} value={value} suffix={suffix} className="stat-value-primary" />
     </Card>
   );
 }

@@ -37,7 +37,7 @@ export default function Approval() {
 
   return (
     <Flex vertical gap={16}>
-      <Typography.Title level={4} style={{ margin: 0 }}>
+      <Typography.Title level={4} className="page-title">
         审批中心
       </Typography.Title>
       <Card>
@@ -89,7 +89,7 @@ function MineTab({ refresh }: { refresh: number }) {
           value={type || undefined}
           placeholder="全部类型"
           allowClear
-          style={{ width: 140 }}
+          className="w-140"
           onChange={(v) => setType(v ?? '')}
           options={[
             { value: 'LEAVE', label: '请假' },
@@ -101,7 +101,7 @@ function MineTab({ refresh }: { refresh: number }) {
           value={status || undefined}
           placeholder="全部状态"
           allowClear
-          style={{ width: 140 }}
+          className="w-140"
           onChange={(v) => setStatus(v ?? '')}
           options={[
             { value: 'PENDING', label: '待审批' },
@@ -218,8 +218,8 @@ function ReviewModal(props: { target: ApprovalRequest; approve: boolean; onClose
       cancelText="取消"
       okButtonProps={{ danger: !approve }}
     >
-      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
-      <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
+      {error && <Alert type="error" showIcon title={error} className="mb-16" />}
+      <Descriptions column={1} size="small" className="mb-16">
         <Descriptions.Item label="申请标题">{target.title}</Descriptions.Item>
         <Descriptions.Item label="申请类型">{APPROVAL_TYPE[target.type]?.label ?? target.type}</Descriptions.Item>
         {target.amount != null && <Descriptions.Item label="金额">¥{target.amount}</Descriptions.Item>}
@@ -279,7 +279,7 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
   };
 
   return (
-    <Flex vertical gap={16} style={{ maxWidth: 520 }}>
+    <Flex vertical gap={16} className="approval-form">
       {error && <Alert type="error" showIcon title={error} />}
       <Form form={form} layout="vertical" requiredMark={false}>
         <Form.Item label="审批类型">
@@ -298,7 +298,7 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
         </Form.Item>
         {needAmount && (
           <Form.Item name="amount" label="金额">
-            <InputNumber min={0} style={{ width: '100%' }} placeholder="如：1500" />
+            <InputNumber min={0} className="w-full" placeholder="如：1500" />
           </Form.Item>
         )}
         <Form.Item name="detail" label="补充详情（JSON，可选）">

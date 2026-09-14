@@ -10,7 +10,6 @@ export interface ChatPanelProps {
   title?: string;
   placeholder?: string;
   welcomeText?: string;
-  height?: number;
   onClose: () => void;
 }
 
@@ -23,7 +22,6 @@ export function ChatPanel(props: ChatPanelProps) {
     title = '智能助手',
     placeholder = '请输入问题，如：我的待办有哪些',
     welcomeText = DEFAULT_WELCOME,
-    height = 460,
     onClose,
   } = props;
   const { messages, logs, isStreaming, error, sendMessage, clear, confirm } = useAgent();
@@ -61,7 +59,7 @@ export function ChatPanel(props: ChatPanelProps) {
         </div>
       </div>
 
-      <div className="agent-chat-list" ref={listRef} style={{ height }}>
+      <div className="agent-chat-list" ref={listRef}>
         {showLogs ? (
           <div className="agent-log-panel">
             {logs.length === 0 && <div className="agent-log-empty">暂无执行日志，发一条消息试试</div>}

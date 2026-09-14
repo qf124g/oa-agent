@@ -90,7 +90,7 @@ export default function Knowledge() {
   return (
     <Flex vertical gap={16}>
       <Flex justify="space-between" align="center">
-        <Typography.Title level={4} style={{ margin: 0 }}>
+        <Typography.Title level={4} className="page-title">
           知识库
         </Typography.Title>
         {isAdmin && (
@@ -106,10 +106,10 @@ export default function Knowledge() {
       </Flex>
 
       <Card>
-        <Flex gap={12} style={{ marginBottom: 12 }}>
-          <Input.Search placeholder="按分类筛选，如 制度" allowClear style={{ width: 240 }} onSearch={(v) => setCategory(v)} />
+        <Flex gap={12} className="mb-12">
+          <Input.Search placeholder="按分类筛选，如 制度" allowClear className="w-240" onSearch={(v) => setCategory(v)} />
         </Flex>
-        {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />}
+        {error && <Alert type="error" showIcon title={error} className="mb-12" />}
         <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} loading={loading} emptyText="暂无文档" />
       </Card>
 
@@ -173,7 +173,7 @@ function CreateModal(props: { onClose: () => void; onCreated: () => void }) {
 
   return (
     <Modal title="新增知识库文档" open onOk={handleOk} onCancel={onClose} confirmLoading={submitting} okText="保存" cancelText="取消">
-      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" showIcon title={error} className="mb-16" />}
       <Form form={form} layout="vertical" requiredMark={false}>
         <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入文档标题' }]}>
           <Input />
@@ -244,7 +244,7 @@ function UploadModal(props: { onClose: () => void; onCreated: () => void }) {
         <p className="ant-upload-text">点击或拖拽文件到此区域</p>
         <p className="ant-upload-hint">支持 txt / md / pdf / docx，大小不超过 10MB，上传后自动解析并向量化</p>
       </Upload.Dragger>
-      <Form layout="vertical" style={{ marginTop: 16 }}>
+      <Form layout="vertical" className="mt-16">
         <Form.Item label="标题（留空默认取文件名）">
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="文档标题" />
         </Form.Item>

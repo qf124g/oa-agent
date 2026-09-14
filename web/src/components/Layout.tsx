@@ -56,7 +56,7 @@ export default function Layout() {
   };
 
   return (
-    <AntdLayout style={{ minHeight: '100vh' }}>
+    <AntdLayout className="app-layout">
       <Sider
         theme="light"
         width={220}
@@ -65,7 +65,7 @@ export default function Layout() {
         onCollapse={setCollapsed}
         breakpoint="lg"
         trigger={null}
-        style={{ borderRight: '1px solid var(--color-border)' }}
+        className="app-sider"
       >
         <div className="brand">
           <span className="brand-icon">OA</span>
@@ -77,34 +77,23 @@ export default function Layout() {
           selectedKeys={[selectedKey]}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
-          style={{ borderInlineEnd: 'none' }}
+          className="app-menu"
         />
       </Sider>
       <AntdLayout>
-        <Header
-          style={{
-            background: '#fff',
-            padding: '0 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            borderBottom: '1px solid var(--color-border)',
-            height: 56,
-            lineHeight: '56px',
-          }}
-        >
+        <Header className="app-header">
           <Button
             type="text"
             aria-label={collapsed ? '展开菜单' : '收起菜单'}
             icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
             onClick={() => setCollapsed((v) => !v)}
           />
-          <span style={{ fontSize: 16, fontWeight: 600 }}>{currentTitle || '企业协同办公平台'}</span>
-          <div style={{ marginLeft: 'auto' }}>
+          <span className="app-header-title">{currentTitle || '企业协同办公平台'}</span>
+          <div className="app-header-user">
             <Dropdown menu={userMenu} placement="bottomRight">
-              <Button type="text" style={{ height: 40 }}>
+              <Button type="text" className="app-header-user-btn">
                 <Space size={8}>
-                  <Avatar size="small" style={{ background: '#1677ff' }}>
+                  <Avatar size="small" className="app-header-avatar">
                     {user.name.charAt(0)}
                   </Avatar>
                   <span>
@@ -115,7 +104,7 @@ export default function Layout() {
             </Dropdown>
           </div>
         </Header>
-        <Content style={{ padding: 24 }}>
+        <Content className="app-content">
           <Outlet />
         </Content>
       </AntdLayout>

@@ -56,7 +56,7 @@ export default function AnnouncementPage() {
       render: (r) => (
         <>
           {r.pinned && (
-            <Tag color="red" style={{ marginRight: 8 }}>
+            <Tag color="red" className="mr-8">
               置顶
             </Tag>
           )}
@@ -80,7 +80,7 @@ export default function AnnouncementPage() {
   return (
     <Flex vertical gap={16}>
       <Flex justify="space-between" align="center">
-        <Typography.Title level={4} style={{ margin: 0 }}>
+        <Typography.Title level={4} className="page-title">
           公告
         </Typography.Title>
         {isAdmin && (
@@ -91,7 +91,7 @@ export default function AnnouncementPage() {
       </Flex>
 
       <Card>
-        {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />}
+        {error && <Alert type="error" showIcon title={error} className="mb-12" />}
         <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} loading={loading} emptyText="暂无公告" />
       </Card>
 
@@ -154,7 +154,7 @@ function CreateModal(props: { onClose: () => void; onCreated: () => void }) {
 
   return (
     <Modal title="发布公告" open onOk={handleOk} onCancel={onClose} confirmLoading={submitting} okText="发布" cancelText="取消">
-      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" showIcon title={error} className="mb-16" />}
       <Form form={form} layout="vertical" requiredMark={false}>
         <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入公告标题' }]}>
           <Input />

@@ -31,14 +31,14 @@ export default function Login() {
 
   return (
     <div className="login-page">
-      <Card style={{ width: 380, boxShadow: '0 8px 24px rgba(22, 119, 255, 0.10)' }}>
-        <Typography.Title level={3} style={{ textAlign: 'center', color: '#1677ff', marginBottom: 4 }}>
+      <Card className="login-card">
+        <Typography.Title level={3} className="login-title">
           企业协同办公平台
         </Typography.Title>
-        <Typography.Text type="secondary" style={{ display: 'block', textAlign: 'center', marginBottom: 24 }}>
+        <Typography.Text type="secondary" className="login-subtitle">
           请使用平台账号登录
         </Typography.Text>
-        {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
+        {error && <Alert type="error" showIcon title={error} className="mb-16" />}
         <Form layout="vertical" onFinish={handleSubmit} requiredMark={false}>
           <Form.Item name="username" label="账号" rules={[{ required: true, message: '请输入账号' }]}>
             <Input prefix={<UserOutlined />} placeholder="如 admin / zhangwei" size="large" />
@@ -50,7 +50,7 @@ export default function Login() {
             登录
           </Button>
         </Form>
-        <Typography.Text type="secondary" style={{ display: 'block', textAlign: 'center', marginTop: 16, fontSize: 12 }}>
+        <Typography.Text type="secondary" className="login-hint">
           固定账号：admin / zhangwei / lina，密码均为 123456
         </Typography.Text>
       </Card>

@@ -91,6 +91,7 @@
 
 /* 消息列表 */
 .agent-chat-list {
+  height: 460px;
   overflow-y: auto;
   padding: 16px;
   background: var(--color-primary-bg-soft);

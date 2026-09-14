@@ -6,12 +6,11 @@ export interface FloatingAssistantProps {
   title?: string;
   placeholder?: string;
   welcomeText?: string;
-  height?: number;
 }
 
 // 悬浮助手：右下角悬浮球（带蓝点提示）+ 可展开会话面板
 export function FloatingAssistant(props: FloatingAssistantProps) {
-  const { title, placeholder, welcomeText, height } = props;
+  const { title, placeholder, welcomeText } = props;
   const { open, unreadCount, togglePanel, closePanel } = useAgent();
 
   return (
@@ -21,7 +20,6 @@ export function FloatingAssistant(props: FloatingAssistantProps) {
           title={title}
           placeholder={placeholder}
           welcomeText={welcomeText}
-          height={height}
           onClose={closePanel}
         />
       ) : (

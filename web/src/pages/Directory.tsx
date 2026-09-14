@@ -74,7 +74,7 @@ export default function Directory() {
       title: '姓名',
       render: (r) => (
         <Space size={8}>
-          <Avatar size="small" style={{ background: r.role === 'ADMIN' ? '#1677ff' : '#4e5969' }}>
+          <Avatar size="small" className={r.role === 'ADMIN' ? 'avatar-admin' : 'avatar-muted'}>
             {r.name.charAt(0)}
           </Avatar>
           <span>{r.name}</span>
@@ -89,7 +89,7 @@ export default function Directory() {
       key: 'action',
       title: '操作',
       render: (r) => (
-        <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setDetailId(r.id)}>
+        <Button type="link" size="small" className="p-0" onClick={() => setDetailId(r.id)}>
           详情
         </Button>
       ),
@@ -99,7 +99,7 @@ export default function Directory() {
   return (
     <Flex vertical gap={16}>
       <Flex align="center" justify="space-between">
-        <Typography.Title level={4} style={{ margin: 0 }}>
+        <Typography.Title level={4} className="page-title">
           人员管理
         </Typography.Title>
         {isAdmin && (
@@ -110,23 +110,23 @@ export default function Directory() {
       </Flex>
 
       <Card>
-        <Flex wrap gap={12} style={{ marginBottom: 12 }}>
+        <Flex wrap gap={12} className="mb-12">
           <Select
             value={departmentId || undefined}
             placeholder="全部部门"
             allowClear
-            style={{ width: 160 }}
+            className="w-160"
             onChange={(v) => setDepartmentId(v ?? '')}
             options={departments.map((d) => ({ value: d.id, label: d.name }))}
           />
           <Input.Search
             placeholder="按姓名搜索"
             allowClear
-            style={{ width: 220 }}
+            className="w-220"
             onSearch={(v) => setName(v)}
           />
         </Flex>
-        {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />}
+        {error && <Alert type="error" showIcon title={error} className="mb-12" />}
         <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} loading={loading} emptyText="暂无员工" />
       </Card>
 
@@ -194,7 +194,8 @@ function EmployeeDrawer(props: {
       open
       onClose={onClose}
       title={null}
-      styles={{ body: { padding: 0 }, wrapper: { width: 480 } }}
+      className="employee-drawer"
+      width={480}
       extra={
         editing ? (
           <Space>
@@ -211,13 +212,13 @@ function EmployeeDrawer(props: {
       {detail ? (
         <Flex vertical>
           {/* 头部信息卡 */}
-          <Flex align="center" gap={16} style={{ padding: '24px 24px 20px', background: 'var(--color-primary-bg-soft)', borderBottom: '1px solid var(--color-border)' }}>
-            <Avatar size={64} style={{ background: detail.role === 'ADMIN' ? '#1677ff' : '#4e5969', fontSize: 24 }}>
+          <Flex align="center" gap={16} className="directory-drawer-head">
+            <Avatar size={64} className={detail.role === 'ADMIN' ? 'avatar-admin avatar-lg' : 'avatar-muted avatar-lg'}>
               {detail.name.charAt(0)}
             </Avatar>
-            <Flex vertical gap={6} style={{ minWidth: 0 }}>
+            <Flex vertical gap={6} className="directory-drawer-info">
               <Space size={8}>
-                <span style={{ fontSize: 18, fontWeight: 600 }}>{detail.name}</span>
+                <span className="directory-drawer-name">{detail.name}</span>
                 <Tag color={detail.role === 'ADMIN' ? 'blue' : 'default'}>{ROLE_LABEL[detail.role] ?? detail.role}</Tag>
               </Space>
               <Typography.Text type="secondary">{detail.title} · {detail.departmentName}</Typography.Text>
@@ -225,7 +226,7 @@ function EmployeeDrawer(props: {
           </Flex>
 
           {editing ? (
-            <Form form={form} layout="vertical" style={{ padding: 20 }} initialValues={detail}>
+            <Form form={form} layout="vertical" className="directory-drawer-body" initialValues={detail}>
               <Form.Item name="userNo" label="工号（登录账号）" rules={[{ required: true, message: '请输入工号' }]}>
                 <Input />
               </Form.Item>
@@ -252,7 +253,7 @@ function EmployeeDrawer(props: {
               </Form.Item>
             </Form>
           ) : (
-            <Flex vertical gap={20} style={{ padding: 20 }}>
+            <Flex vertical gap={20} className="directory-drawer-body">
               <Descriptions column={1} size="small" colon={false}>
                 <Descriptions.Item label={<Space size={4}><UserOutlined />工号</Space>}>{detail.userNo}</Descriptions.Item>
                 <Descriptions.Item label={<Space size={4}><PhoneOutlined />手机</Space>}>{detail.phone || '-'}</Descriptions.Item>
@@ -262,7 +263,7 @@ function EmployeeDrawer(props: {
           )}
         </Flex>
       ) : (
-        <Flex align="center" justify="center" style={{ padding: 40 }}>
+        <Flex align="center" justify="center" className="directory-drawer-empty">
           <Typography.Text type="secondary">加载中...</Typography.Text>
         </Flex>
       )}

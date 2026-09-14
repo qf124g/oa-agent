@@ -65,7 +65,7 @@ export default function Todo() {
   return (
     <Flex vertical gap={16}>
       <Flex justify="space-between" align="center">
-        <Typography.Title level={4} style={{ margin: 0 }}>
+        <Typography.Title level={4} className="page-title">
           待办任务
         </Typography.Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setShowCreate(true)}>
@@ -74,12 +74,12 @@ export default function Todo() {
       </Flex>
 
       <Card>
-        <Flex wrap gap={12} style={{ marginBottom: 12 }}>
+        <Flex wrap gap={12} className="mb-12">
           <Select
             value={status || undefined}
             placeholder="全部状态"
             allowClear
-            style={{ width: 140 }}
+            className="w-140"
             onChange={(v) => setStatus(v ?? '')}
             options={[
               { value: 'PENDING', label: '待处理' },
@@ -87,7 +87,7 @@ export default function Todo() {
             ]}
           />
         </Flex>
-        {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 12 }} />}
+        {error && <Alert type="error" showIcon title={error} className="mb-12" />}
         <DataTable columns={columns} rows={todos} rowKey={(r) => r.id} loading={loading} />
       </Card>
 
@@ -130,7 +130,7 @@ function CreateTodoModal(props: { onClose: () => void; onCreated: () => void }) 
 
   return (
     <Modal title="新建待办" open onOk={handleOk} onCancel={onClose} confirmLoading={submitting} okText="提交" cancelText="取消">
-      {error && <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />}
+      {error && <Alert type="error" showIcon title={error} className="mb-16" />}
       <Form form={form} layout="vertical" initialValues={{ priority: 'MEDIUM' }} requiredMark={false}>
         <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入待办标题' }]}>
           <Input placeholder="如：提交周报" />
@@ -148,7 +148,7 @@ function CreateTodoModal(props: { onClose: () => void; onCreated: () => void }) 
           />
         </Form.Item>
         <Form.Item name="dueDate" label="截止日期">
-          <DatePicker style={{ width: '100%' }} />
+          <DatePicker className="w-full" />
         </Form.Item>
       </Form>
     </Modal>
