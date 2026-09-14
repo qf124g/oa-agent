@@ -221,6 +221,20 @@
   border: none;
   border-top: 1px solid var(--color-primary-border-soft);
 }
+
+/* 助手回答中的图表块（```chart 代码块渲染） */
+.agent-chat-chart {
+  width: 260px;
+  max-width: 100%;
+  margin: 8px 0;
+}
+.agent-chat-chart-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 4px;
+}
+
 .agent-chat-typing {
   color: var(--color-text-tertiary);
   font-size: 13px;

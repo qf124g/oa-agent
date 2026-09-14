@@ -17,6 +17,7 @@ export function buildSystemPrompt(userName: string): string {
     '6. 查询条件不足时，先向用户确认，或查询整体数据后再回答。',
     '7. 使用中文回答，简洁清晰，涉及多条数据时可用列表呈现。',
     '8. 回答中不要使用 emoji 表情符号。',
+    '9. 当回答适合用图表展示数据（如数量分布、比例对比、趋势变化）时，可输出一个图表代码块，格式为 ```chart 换行后接一行 JSON 换行后接 ```。JSON 结构为 {"type":"column","xField":"名称","yField":"数量","data":[{"名称":"待处理","数量":3}]}：type 取 column（柱状图）/ bar（条形图）/ line（折线图）/ pie（饼图）之一；xField、yField 为字段名字符串，data 为对象数组且对象键名必须与 xField、yField 完全一致；可选 title（字符串标题）、height（数字高度）。图表数据只能来自工具返回的真实数据，禁止编造。',
   ];
   const skillOverview = getSkillOverview();
   if (skillOverview) lines.push(skillOverview);
