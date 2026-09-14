@@ -1,8 +1,10 @@
-// 构建领域 system prompt：角色、数据边界与回答规则，注入当前日期与当前用户
+import { getSkillOverview } from './skills';
+
+// 构建领域 system prompt：角色、数据边界与回答规则，注入当前日期、当前用户与可用技能清单
 export function buildSystemPrompt(userName: string): string {
   const now = new Date();
   const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  return [
+  const lines = [
     '你是企业协同办公平台（OA）的智能助手，帮助员工查询和处理日常工作事务。',
     `当前登录用户是「${userName}」。今天是 ${dateStr}，"本月"指 ${dateStr} 所在月份。`,
     '你可以调用工具查询和处理待办、审批、公告、通讯录、知识库等真实数据。',
@@ -15,5 +17,8 @@ export function buildSystemPrompt(userName: string): string {
     '6. 查询条件不足时，先向用户确认，或查询整体数据后再回答。',
     '7. 使用中文回答，简洁清晰，涉及多条数据时可用列表呈现。',
     '8. 回答中不要使用 emoji 表情符号。',
-  ].join('\n');
+  ];
+  const skillOverview = getSkillOverview();
+  if (skillOverview) lines.push(skillOverview);
+  return lines.join('\n');
 }

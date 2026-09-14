@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { getSkill, runSkillScript } from '../skills';
 import { searchKnowledge, invalidateIndex } from '../rag/knowledge-sync';
 
 // 工具执行上下文：透传前端 Bearer token，调用平台后端时附加鉴权头
@@ -67,6 +68,24 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
     } catch (err) {
       return { ok: false, result: { error: `知识库检索失败: ${err instanceof Error ? err.message : String(err)}` } };
     }
+  }
+
+  // 加载技能步骤（本地只读）
+  if (name === 'use_skill') {
+    const skillId = String(args.skillId ?? '').trim();
+    if (!skillId) return { ok: false, result: { error: '技能 ID 不能为空' } };
+    const skill = getSkill(skillId);
+    if (!skill) return { ok: false, result: { error: `未找到技能: ${skillId}` } };
+    return { ok: true, result: { id: skill.id, name: skill.name, description: skill.description, steps: skill.body } };
+  }
+
+  // 执行技能本地脚本（只读，不发后端请求）
+  if (name === 'run_skill_script') {
+    const skillId = String(args.skillId ?? '').trim();
+    const script = String(args.script ?? '').trim();
+    const scriptArgs = (args.args ?? {}) as Record<string, unknown>;
+    const r = await runSkillScript(skillId, script, scriptArgs);
+    return r.ok ? { ok: true, result: r.result } : { ok: false, result: { error: r.error } };
   }
 
   const route = TOOL_ROUTES[name];

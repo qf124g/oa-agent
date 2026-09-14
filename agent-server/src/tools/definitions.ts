@@ -165,6 +165,37 @@ export const TOOL_DEFINITIONS: ChatCompletionTool[] = [
       },
     },
   },
+  // ---------- 只读：技能 ----------
+  {
+    type: 'function',
+    function: {
+      name: 'use_skill',
+      description: '加载指定技能（skill）的详细步骤说明。当用户任务与某条注册技能匹配（如周报、新员工入职、报销汇总）时，先调用本工具读取步骤，再按步骤编排后续工具调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          skillId: { type: 'string', description: '技能 ID，如 weekly-report / new-employee-onboarding / expense-report' },
+        },
+        required: ['skillId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_skill_script',
+      description: '执行技能关联的本地计算脚本（只读、不发后端请求），用于数据汇总、格式转换等确定性计算，返回脚本计算结果。',
+      parameters: {
+        type: 'object',
+        properties: {
+          skillId: { type: 'string', description: '技能 ID' },
+          script: { type: 'string', description: '脚本文件名，如 summarize-expense.mjs' },
+          args: { type: 'object', description: '传给脚本的参数对象，结构由对应技能步骤说明约定' },
+        },
+        required: ['skillId', 'script'],
+      },
+    },
+  },
   // ---------- 写操作：待办 ----------
   {
     type: 'function',
