@@ -8,6 +8,7 @@ import { config } from './config';
 import { buildSystemPrompt } from './prompts';
 import { TOOL_DEFINITIONS, isWriteTool, WRITE_TOOL_META, type WriteToolMeta } from './tools/definitions';
 import { executeTool, stringifyToolResult } from './tools/executor';
+import { formatHistoryForRewrite } from './rag/query-rewrite';
 import type { SSEEvent } from './sse';
 import { truncateIfNeeded, type Session } from './session';
 
@@ -229,7 +230,7 @@ export async function resumeAfterConfirmation(opts: {
   let result: unknown;
   let ok = approved;
   if (approved) {
-    const executed = await executeTool(pending.toolName, pending.args, { token: session.token });
+    const executed = await executeTool(pending.toolName, pending.args, { token: session.token, history: formatHistoryForRewrite(session.history) });
     ok = executed.ok;
     result = executed.result;
   } else {
@@ -264,7 +265,7 @@ async function runAndEmit(
   step: number
 ): Promise<void> {
   emit({ type: 'tool_call', toolCallId, name, arguments: args });
-  const { ok, result } = await executeTool(name, args, { token: session.token });
+  const { ok, result } = await executeTool(name, args, { token: session.token, history: formatHistoryForRewrite(session.history) });
   emit({ type: 'tool_result', toolCallId, name, ok, result });
   emit({
     type: 'log',

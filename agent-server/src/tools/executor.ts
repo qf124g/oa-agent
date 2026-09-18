@@ -1,10 +1,14 @@
 import { config } from '../config';
 import { getSkill, runSkillScript } from '../skills';
 import { searchKnowledge, invalidateIndex } from '../rag/knowledge-sync';
+import { rewriteQueryForSearch, splitMultiIntentQuery } from '../rag/query-rewrite';
+import type { SearchHit } from '../rag/vector-index';
 
 // 工具执行上下文：透传前端 Bearer token，调用平台后端时附加鉴权头
 export interface ToolContext {
   token: string;
+  // 对话历史文本（用于 search_knowledge 检索前的 query 改写）
+  history: string;
 }
 
 // 工具执行结果
@@ -54,6 +58,22 @@ const TOOL_ROUTES: Record<string, (args: Record<string, unknown>) => Route> = {
   delete_knowledge_document: (a) => ({ method: 'DELETE', path: `/api/knowledge/${a.id}` }),
 };
 
+// 合并多个子查询的检索结果：按（docId + 文本）去重，按相似度降序，截断到 limit
+function mergeHits(groups: SearchHit[][], limit: number): SearchHit[] {
+  const seen = new Set<string>();
+  const merged: SearchHit[] = [];
+  for (const group of groups) {
+    for (const hit of group) {
+      const key = `${hit.docId}\u0000${hit.text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(hit);
+    }
+  }
+  merged.sort((a, b) => b.score - a.score);
+  return merged.slice(0, limit);
+}
+
 // 执行工具：调用平台后端 API 并解析统一响应结构；知识库写操作后同步失效向量索引
 export async function executeTool(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolExecution> {
   // 本地向量检索，不调平台后端
@@ -63,8 +83,26 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
       return { ok: false, result: { error: '检索问题不能为空' } };
     }
     try {
-      const hits = await searchKnowledge(query, ctx.token);
-      return { ok: true, result: { hits } };
+      const rewritten = await rewriteQueryForSearch(query, ctx.history);
+      const subQueries = await splitMultiIntentQuery(rewritten);
+      // 多意图：拆分为多个子问题分别检索，再合并去重
+      if (subQueries.length > 1) {
+        const groups = await Promise.all(subQueries.map((q) => searchKnowledge(q, ctx.token)));
+        const hits = mergeHits(groups, subQueries.length * config.knowledgeTopK);
+        return {
+          ok: true,
+          result: {
+            hits,
+            rewritten: rewritten === query ? undefined : { original: query, rewritten },
+            subQueries,
+          },
+        };
+      }
+      const hits = await searchKnowledge(rewritten, ctx.token);
+      return {
+        ok: true,
+        result: { hits, rewritten: rewritten === query ? undefined : { original: query, rewritten } },
+      };
     } catch (err) {
       return { ok: false, result: { error: `知识库检索失败: ${err instanceof Error ? err.message : String(err)}` } };
     }
