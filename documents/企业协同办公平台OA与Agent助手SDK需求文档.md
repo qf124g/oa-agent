@@ -31,7 +31,7 @@ backend (Express 8080)               agent-server (Express 3002)
   │ 工具执行透传 Bearer token                │ ② 写操作确认协议
   └──────────────────────────────────────────┤ ③ RAG 向量检索
                                              ▼
-                              大模型/Embedding（OpenAI 兼容协议，阿里云百炼 qwen-plus + text-embedding-v3）
+                              大模型/Embedding（OpenAI 兼容协议，阿里云百炼 qwen3.8-max + text-embedding-v3）
 ```
 
 - npm workspaces 统一管理 4 个包：web / backend / agent-server / agent-sdk（SDK 无独立服务，源码引用）
@@ -150,7 +150,7 @@ agent-server/src/
 |---|---|---|
 | OPENAI_BASE_URL | 阿里云百炼兼容模式端点 | OpenAI 兼容协议，可切换智谱/DeepSeek |
 | OPENAI_API_KEY | - | 必填，大模型密钥 |
-| OPENAI_MODEL | qwen-plus | 对话模型 |
+| OPENAI_MODEL | qwen3.8-max | 对话模型 |
 | EMBEDDING_MODEL | text-embedding-v3 | RAG 向量化模型 |
 | PORT | 3002 | 服务端口 |
 | PLATFORM_API_BASE | http://localhost:8080 | 业务后端地址 |

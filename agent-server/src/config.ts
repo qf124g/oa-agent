@@ -9,9 +9,9 @@ dotenv.config({ path: path.resolve(currentDir, '../.env') });
 // 服务配置：大模型接入参数 + 端口 + 平台后端地址 + RAG 参数
 export const config = {
   // OpenAI 兼容端点（阿里云百炼 DashScope 兼容模式）
-  openaiBaseUrl: process.env.OPENAI_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  openaiBaseUrl: process.env.OPENAI_BASE_URL || 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
   openaiApiKey: process.env.OPENAI_API_KEY || '',
-  openaiModel: process.env.OPENAI_MODEL || 'qwen-plus',
+  openaiModel: process.env.OPENAI_MODEL || 'qwen3.8-max',
   // Embedding 模型（用于 RAG 知识库向量化）
   embeddingModel: process.env.EMBEDDING_MODEL || 'text-embedding-v3',
   port: Number(process.env.PORT || 3002),

@@ -209,7 +209,7 @@ backend 知识库文档（source of truth）
 
 ### 机制说明
 
-- 使用官方 `openai` SDK 但 `baseURL` 可配置，当前接阿里云百炼兼容模式端点（`https://dashscope.aliyuncs.com/compatible-mode/v1`），对话用 qwen-plus、向量化用 text-embedding-v3；
+- 使用官方 `openai` SDK 但 `baseURL` 可配置，当前接阿里云百炼兼容模式端点（`https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`），对话用 qwen3.8-max、向量化用 text-embedding-v3；
 - 因为是标准兼容协议，改 `.env` 的 `OPENAI_BASE_URL` / `OPENAI_MODEL` / `OPENAI_API_KEY` 即可切换 DeepSeek、智谱等任意兼容厂商，业务代码零改动；
 - 深度使用了协议的进阶特性：`tools`（JSON Schema 函数声明）、流式增量中的 tool\_calls 分片、`tool_call_id` 消息关联、embeddings 接口。
 

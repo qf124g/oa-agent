@@ -59,7 +59,7 @@
 |---|---|---|
 | OPENAI_BASE_URL | 阿里云百炼兼容模式端点 | OpenAI 兼容协议，可切换智谱/DeepSeek 等 |
 | OPENAI_API_KEY | - | 必填，大模型密钥 |
-| OPENAI_MODEL | qwen-plus | 对话模型 |
+| OPENAI_MODEL | qwen3.8-max | 对话模型 |
 | EMBEDDING_MODEL | text-embedding-v3 | RAG 向量化模型 |
 | PORT | 3002 | 服务端口 |
 | PLATFORM_API_BASE | http://localhost:8080 | 业务后端地址 |
