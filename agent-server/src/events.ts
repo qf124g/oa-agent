@@ -13,6 +13,7 @@ export interface AgentNotification {
   content: string;
   actions: Array<{ label: string; sendText: string }>;
   createdAt: number;
+  read?: boolean; // 是否已读（收件箱）；缺省视为未读
 }
 
 // 领域事件（由 backend 通过 POST /internal/events 上报）
@@ -26,11 +27,11 @@ export interface DomainEvent {
 
 const connections = new Map<string, Set<Response>>();
 
-// 离线收件箱：用户无在线连接时暂存，连接建立后补发；每用户上限 20 条防内存膨胀
-const offlineInbox = new Map<string, AgentNotification[]>();
-const OFFLINE_INBOX_CAP = 20;
+// 收件箱：按用户维度持久化全部推送消息（最新在前，含已读状态）；每用户上限 100 条防内存膨胀
+const inbox = new Map<string, AgentNotification[]>();
+const INBOX_CAP = 100;
 
-// 注册事件连接，返回注销函数；注册后立即补发离线消息
+// 注册事件连接，返回注销函数（离线消息由收件箱接口承担，连接建立时不再补发）
 export function registerEventConnection(userId: string, res: Response): () => void {
   let set = connections.get(userId);
   if (!set) {
@@ -39,32 +40,25 @@ export function registerEventConnection(userId: string, res: Response): () => vo
   }
   set.add(res);
 
-  const inbox = offlineInbox.get(userId);
-  if (inbox && inbox.length > 0) {
-    offlineInbox.delete(userId);
-    for (const n of inbox) {
-      writeSSE(res, { type: 'notify', notification: n as unknown as Record<string, unknown> });
-    }
-  }
-
   return () => {
     set.delete(res);
     if (set.size === 0) connections.delete(userId);
   };
 }
 
-// 推送目标用户：在线则实时下发，离线则入收件箱
+// 推送目标用户：持久化到收件箱，在线则实时下发，离线留在收件箱待查看
 function pushToUser(userId: string, notification: AgentNotification): void {
+  const item: AgentNotification = { ...notification, read: notification.read ?? false };
+  const list = inbox.get(userId) ?? [];
+  list.unshift(item);
+  if (list.length > INBOX_CAP) list.length = INBOX_CAP;
+  inbox.set(userId, list);
+
   const set = connections.get(userId);
-  if (!set || set.size === 0) {
-    const inbox = offlineInbox.get(userId) ?? [];
-    inbox.push(notification);
-    if (inbox.length > OFFLINE_INBOX_CAP) inbox.shift();
-    offlineInbox.set(userId, inbox);
-    return;
-  }
-  for (const res of set) {
-    writeSSE(res, { type: 'notify', notification: notification as unknown as Record<string, unknown> });
+  if (set) {
+    for (const res of set) {
+      writeSSE(res, { type: 'notify', notification: item as unknown as Record<string, unknown> });
+    }
   }
 }
 
@@ -165,4 +159,19 @@ function buildNotification(event: DomainEvent): AgentNotification | null {
     default:
       return null;
   }
+}
+
+// 收件箱列表（最新在前）+ 未读数
+export function listInbox(userId: string): { list: AgentNotification[]; unreadCount: number } {
+  const list = inbox.get(userId) ?? [];
+  return { list: [...list], unreadCount: list.filter((n) => !n.read).length };
+}
+
+// 标记已读：缺省 id 全部已读，指定 id 单条已读；返回最新未读数
+export function markInboxRead(userId: string, id?: string): { unreadCount: number } {
+  const list = inbox.get(userId) ?? [];
+  for (const n of list) {
+    if (!id || n.id === id) n.read = true;
+  }
+  return { unreadCount: list.filter((n) => !n.read).length };
 }

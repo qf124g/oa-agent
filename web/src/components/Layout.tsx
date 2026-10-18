@@ -3,6 +3,7 @@ import {
   BookOutlined,
   CarryOutOutlined,
   DashboardOutlined,
+  InboxOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -10,11 +11,12 @@ import {
   ScheduleOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Dropdown, Layout as AntdLayout, Menu, Space } from 'antd';
+import { Avatar, Badge, Button, Dropdown, Layout as AntdLayout, Menu, Space } from 'antd';
 import { useState } from 'react';
 import { FloatingAssistant } from 'agent-sdk';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { useInbox } from '../inbox/InboxContext';
 import { ROLE_LABEL } from '../constants';
 
 const { Sider, Header, Content } = AntdLayout;
@@ -28,11 +30,13 @@ const NAV_ITEMS = [
   { to: '/directory', label: '人员管理', icon: <TeamOutlined /> },
   { to: '/knowledge', label: '知识库', icon: <BookOutlined /> },
   { to: '/tasks', label: '任务中心', icon: <ScheduleOutlined /> },
+  { to: '/inbox', label: '收件箱', icon: <InboxOutlined /> },
 ];
 
 // 受保护的全局布局：登录守卫 + 侧边导航 + 顶栏 + 内容区 + 悬浮助手
 export default function Layout() {
   const { user, logout } = useAuth();
+  const { unreadCount } = useInbox();
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
@@ -45,7 +49,18 @@ export default function Layout() {
   const selectedKey = location.pathname === '/' ? '/' : location.pathname;
   const currentTitle = NAV_ITEMS.find((item) => item.to === selectedKey)?.label ?? '';
 
-  const menuItems = NAV_ITEMS.map((item) => ({ key: item.to, icon: item.icon, label: item.label }));
+  const menuItems = NAV_ITEMS.map((item) => {
+    const label =
+      item.to === '/inbox' && unreadCount > 0 ? (
+        <Space size={8}>
+          {item.label}
+          <Badge count={unreadCount} size="small" />
+        </Space>
+      ) : (
+        item.label
+      );
+    return { key: item.to, icon: item.icon, label };
+  });
 
   const userMenu = {
     items: [{ key: 'logout', icon: <LogoutOutlined />, label: '退出登录' }],

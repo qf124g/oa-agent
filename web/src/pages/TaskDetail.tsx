@@ -2,7 +2,8 @@ import { ArrowLeftOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Flex, Tag, Timeline, Typography } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { formatDateTime, getTask } from '../task-api';
+import { formatDateTime } from '../agent-api';
+import { getTask } from '../task-api';
 import type { AgentTask, TaskStep } from '../types';
 import { TASK_STATUS } from '../constants';
 

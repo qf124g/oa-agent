@@ -134,3 +134,13 @@ export interface AgentTask extends AgentTaskSummary {
   result: string;
   steps: TaskStep[];
 }
+
+// 收件箱消息（助手主动推送）
+export interface InboxNotification {
+  id: string;
+  title: string;
+  content: string;
+  actions: Array<{ label: string; sendText: string }>;
+  createdAt: number;
+  read?: boolean;
+}

@@ -6,6 +6,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { AGENT_SERVER_URL, TOKEN_KEY } from './constants';
 import { AuthProvider } from './auth/AuthContext';
+import { InboxProvider } from './inbox/InboxContext';
 import './styles/global.css';
 
 // 读取本地 token 作为 agent 请求鉴权头（登录后由 AuthContext 写入 localStorage）
@@ -28,11 +29,13 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   >
     <AntdApp>
       <AuthProvider>
-        <AgentProvider url={AGENT_SERVER_URL} getAuthHeaders={getAuthHeaders}>
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
-        </AgentProvider>
+        <InboxProvider>
+          <AgentProvider url={AGENT_SERVER_URL} getAuthHeaders={getAuthHeaders}>
+            <BrowserRouter>
+              <App />
+            </BrowserRouter>
+          </AgentProvider>
+        </InboxProvider>
       </AuthProvider>
     </AntdApp>
   </ConfigProvider>

@@ -8,7 +8,7 @@ import { writeSSE, type SSEEvent } from './sse';
 import { createTask, recordEvent, getTaskBySession, listTasks, getTask, markInterrupted } from './task';
 import { getOrCreateSession, getSession } from './session';
 import { extractToken, resolveUser } from './auth';
-import { registerEventConnection, handleDomainEvent } from './events';
+import { registerEventConnection, handleDomainEvent, listInbox, markInboxRead } from './events';
 import type { DomainEvent } from './events';
 
 // 启动时校验大模型 API Key，缺失则快速失败并给出中文提示
@@ -199,6 +199,31 @@ app.post('/api/chat/confirm', async (req, res) => {
     emit({ type: 'done' });
     if (!res.writableEnded && !res.destroyed) res.end();
   }
+});
+
+// ---------- 收件箱 ----------
+
+// 当前用户收到的助手主动推送消息列表（最新在前）+ 未读数
+app.get('/api/inbox', async (req, res) => {
+  const token = extractToken(req.headers.authorization);
+  const user = token ? await resolveUser(token) : null;
+  if (!user) {
+    res.status(401).json({ code: 401, message: '未登录或令牌已失效', data: null });
+    return;
+  }
+  res.json({ code: 0, message: 'ok', data: listInbox(user.userId) });
+});
+
+// 标记已读：缺省 id 全部已读，带 id 标记单条
+app.post('/api/inbox/read', async (req, res) => {
+  const token = extractToken(req.headers.authorization);
+  const user = token ? await resolveUser(token) : null;
+  if (!user) {
+    res.status(401).json({ code: 401, message: '未登录或令牌已失效', data: null });
+    return;
+  }
+  const id = typeof req.body?.id === 'string' ? req.body.id : undefined;
+  res.json({ code: 0, message: 'ok', data: markInboxRead(user.userId, id) });
 });
 
 // ---------- 任务中心 ----------
