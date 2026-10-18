@@ -92,6 +92,38 @@ export interface KnowledgeDocument {
   uploadedByName: string; // 上传人姓名（展示字段）
 }
 
+// ---- 审批流程定义（自研 SVG 工作流画布）----
+
+export type WorkflowNodeType = 'START' | 'APPROVAL' | 'CONDITION' | 'END';
+
+export interface WorkflowNode {
+  id: string;
+  type: WorkflowNodeType;
+  title: string; // 节点显示名
+  x: number; // 画布世界坐标
+  y: number;
+  config?: Record<string, unknown>; // 预留（审批人/条件表达式）
+}
+
+export interface WorkflowEdge {
+  id: string;
+  from: string; // 源节点 id
+  to: string; // 目标节点 id
+  label?: string; // 分支标签（条件分支用）
+}
+
+export interface WorkflowDefinition {
+  id: string;
+  name: string; // 流程名称
+  approvalType: ApprovalType | null; // 关联审批类型，可空
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  createdBy: string;
+  createdByName: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ---- 通用结构 ----
 
 export interface PageResult<T> {

@@ -14,6 +14,9 @@ import type {
   TodoPriority,
   TodoStatus,
   TodoTask,
+  WorkflowDefinition,
+  WorkflowEdge,
+  WorkflowNode,
 } from './types';
 
 // 磁盘快照路径：backend/data/store.json（相对源码目录上跳一级）
@@ -29,6 +32,7 @@ interface SnapshotData {
   approvals: Record<string, ApprovalRequest>;
   announcements: Record<string, Announcement>;
   knowledgeDocs: Record<string, KnowledgeDocument>;
+  workflows: Record<string, WorkflowDefinition>;
 }
 
 // 变更后自动落盘的 Map 封装
@@ -71,6 +75,7 @@ export class InMemoryStore {
   approvals = new PersistentMap<string, ApprovalRequest>();
   announcements = new PersistentMap<string, Announcement>();
   knowledgeDocs = new PersistentMap<string, KnowledgeDocument>();
+  workflows = new PersistentMap<string, WorkflowDefinition>();
 
   private idSeq = 0;
 
@@ -99,6 +104,7 @@ export class InMemoryStore {
       ...this.approvals.keys(),
       ...this.announcements.keys(),
       ...this.knowledgeDocs.keys(),
+      ...this.workflows.keys(),
     ];
     return allIds.reduce((max, id) => Math.max(max, numericSuffix(id)), 0);
   }
@@ -112,6 +118,7 @@ export class InMemoryStore {
     this.approvals.arm(save);
     this.announcements.arm(save);
     this.knowledgeDocs.arm(save);
+    this.workflows.arm(save);
   }
 
   // 从磁盘加载快照；文件不存在或损坏时返回 false（走种子初始化）
@@ -126,6 +133,7 @@ export class InMemoryStore {
       this.hydrate(this.approvals, s.approvals);
       this.hydrate(this.announcements, s.announcements);
       this.hydrate(this.knowledgeDocs, s.knowledgeDocs);
+      this.hydrate(this.workflows, s.workflows);
       return true;
     } catch {
       return false;
@@ -150,6 +158,7 @@ export class InMemoryStore {
       approvals: Object.fromEntries(this.approvals),
       announcements: Object.fromEntries(this.announcements),
       knowledgeDocs: Object.fromEntries(this.knowledgeDocs),
+      workflows: Object.fromEntries(this.workflows),
     };
     mkdirSync(dirname(DATA_FILE), { recursive: true });
     const tmp = `${DATA_FILE}.tmp`;
@@ -203,6 +212,21 @@ export class InMemoryStore {
     this.announcements.set('N002', this.announcement('N002', '新员工入职指引', '欢迎加入公司，请在入职当日完成设备领取、账号开通及入职培训。', 'E003', false, now));
 
     // 知识库文档不再写死在代码里：由启动时扫描 backend/seed/knowledge/ 下的 PDF/MD 加载（见 seed-knowledge.ts）
+
+    // 审批流程：默认「请假审批流程」示例（自研 SVG 画布可加载编辑）
+    this.workflows.set('W001', this.workflow('W001', '请假审批流程', 'LEAVE', [
+      { id: 'n-start', type: 'START', title: '发起请假', x: 60, y: 80 },
+      { id: 'n-manager', type: 'APPROVAL', title: '直属主管审批', x: 300, y: 80 },
+      { id: 'n-cond', type: 'CONDITION', title: '请假天数 > 3 天', x: 540, y: 80 },
+      { id: 'n-hr', type: 'APPROVAL', title: '人力资源审批', x: 540, y: 240 },
+      { id: 'n-end', type: 'END', title: '结束', x: 800, y: 140 },
+    ], [
+      { id: 'e1', from: 'n-start', to: 'n-manager' },
+      { id: 'e2', from: 'n-manager', to: 'n-cond' },
+      { id: 'e3', from: 'n-cond', to: 'n-hr', label: '是' },
+      { id: 'e4', from: 'n-cond', to: 'n-end', label: '否' },
+      { id: 'e5', from: 'n-hr', to: 'n-end' },
+    ]));
   }
 
   // 将 idSeq 提升到当前所有实体最大编号之上，避免后续 nextId 与外部注入的固定 id（如知识库 seed）冲突
@@ -225,6 +249,11 @@ export class InMemoryStore {
 
   private announcement(id: string, title: string, content: string, authorId: string, pinned: boolean, publishedAt: number): Announcement {
     return { id, title, content, authorId, pinned, publishedAt, authorName: '' };
+  }
+
+  private workflow(id: string, name: string, approvalType: ApprovalType | null, nodes: WorkflowNode[], edges: WorkflowEdge[]): WorkflowDefinition {
+    const now = Date.now();
+    return { id, name, approvalType, nodes, edges, createdBy: 'E001', createdByName: '陈昊', createdAt: now, updatedAt: now };
   }
 }
 

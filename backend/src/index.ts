@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
+import { randomUUID } from 'node:crypto';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { BusinessError, ok, fail, paginate, asInt, str, plusDays } from './common';
 import { store } from './store';
@@ -10,12 +11,17 @@ import { extractTextFromBuffer } from './extract-text';
 import { loadKnowledgeSeed } from './seed-knowledge';
 import type {
   ApprovalRequest,
+  ApprovalType,
   AuthUser,
   Employee,
   KnowledgeDocument,
   Role,
   TodoPriority,
   TodoTask,
+  WorkflowDefinition,
+  WorkflowEdge,
+  WorkflowNode,
+  WorkflowNodeType,
 } from './types';
 
 // 鉴权后的请求（附加 currentUser）
@@ -516,6 +522,71 @@ app.post('/api/knowledge/upload', requireRole('ADMIN'), upload.single('file'), a
   }
 });
 
+// ---------- 审批流程（自研 SVG 工作流画布） ----------
+
+app.get('/api/workflows', (_req, res) => {
+  const list = [...store.workflows.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  res.json(ok(list));
+});
+
+app.get('/api/workflows/:id', (req, res) => {
+  const wf = store.workflows.get(req.params.id);
+  if (!wf) {
+    throw new BusinessError(404, '流程不存在');
+  }
+  res.json(ok(wf));
+});
+
+app.post('/api/workflows', requireRole('ADMIN'), (req, res) => {
+  const user = (req as AuthedRequest).currentUser as AuthUser;
+  const body = req.body ?? {};
+  const name = str(body.name).trim();
+  if (!name) {
+    throw new BusinessError(400, '流程名称不能为空');
+  }
+  const now = Date.now();
+  const wf: WorkflowDefinition = {
+    id: store.nextId('W'),
+    name,
+    approvalType: parseApprovalType(body.approvalType),
+    nodes: sanitizeNodes(body.nodes),
+    edges: sanitizeEdges(body.edges),
+    createdBy: user.userId,
+    createdByName: store.employeeName(user.userId),
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.workflows.set(wf.id, wf);
+  res.json(ok(wf));
+});
+
+app.patch('/api/workflows/:id', requireRole('ADMIN'), (req, res) => {
+  const wf = store.workflows.get(req.params.id);
+  if (!wf) {
+    throw new BusinessError(404, '流程不存在');
+  }
+  const body = req.body ?? {};
+  if (body.name !== undefined) {
+    const name = str(body.name).trim();
+    if (!name) {
+      throw new BusinessError(400, '流程名称不能为空');
+    }
+    wf.name = name;
+  }
+  if (body.approvalType !== undefined) wf.approvalType = parseApprovalType(body.approvalType);
+  if (body.nodes !== undefined) wf.nodes = sanitizeNodes(body.nodes);
+  if (body.edges !== undefined) wf.edges = sanitizeEdges(body.edges);
+  wf.updatedAt = Date.now();
+  res.json(ok(wf));
+});
+
+app.delete('/api/workflows/:id', requireRole('ADMIN'), (req, res) => {
+  if (!store.workflows.delete(req.params.id)) {
+    throw new BusinessError(404, '流程不存在');
+  }
+  res.json(ok(null));
+});
+
 // ---------- 工作台 ----------
 
 app.get('/api/dashboard/stats', (req, res) => {
@@ -600,6 +671,51 @@ function decide(req: AuthedRequest, id: string, comment: string, approved: boole
     targetUserIds: [a.applicantId],
     data: { id: a.id, title: a.title, type: a.type, status: a.status, comment, approverName: store.employeeName(user.userId) },
   });
+  return result;
+}
+
+// 审批类型白名单解析，非法值返回 null
+function parseApprovalType(v: unknown): ApprovalType | null {
+  return v === 'LEAVE' || v === 'EXPENSE' || v === 'PURCHASE' ? v : null;
+}
+
+function isNodeType(v: unknown): v is WorkflowNodeType {
+  return v === 'START' || v === 'APPROVAL' || v === 'CONDITION' || v === 'END';
+}
+
+// 清洗节点数组：仅保留合法字段，坐标强制为数字，id 缺失时补随机 id
+function sanitizeNodes(raw: unknown): WorkflowNode[] {
+  if (!Array.isArray(raw)) return [];
+  const result: WorkflowNode[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const n = item as Record<string, unknown>;
+    result.push({
+      id: str(n.id) || randomUUID(),
+      type: isNodeType(n.type) ? n.type : 'APPROVAL',
+      title: str(n.title),
+      x: typeof n.x === 'number' ? n.x : 0,
+      y: typeof n.y === 'number' ? n.y : 0,
+      config: n.config && typeof n.config === 'object' ? (n.config as Record<string, unknown>) : undefined,
+    });
+  }
+  return result;
+}
+
+// 清洗连线数组：仅保留合法字段，id 缺失时补随机 id
+function sanitizeEdges(raw: unknown): WorkflowEdge[] {
+  if (!Array.isArray(raw)) return [];
+  const result: WorkflowEdge[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const e = item as Record<string, unknown>;
+    result.push({
+      id: str(e.id) || randomUUID(),
+      from: str(e.from),
+      to: str(e.to),
+      label: e.label ? str(e.label) : undefined,
+    });
+  }
   return result;
 }
 

@@ -45,3 +45,11 @@ export const TASK_STATUS: Record<string, { label: string; color: string }> = {
   FAILED: { label: '失败', color: 'error' },
   INTERRUPTED: { label: '已中断', color: 'default' },
 };
+
+// 审批流程节点类型文案与颜色
+export const WORKFLOW_NODE_TYPE: Record<string, { label: string; color: string }> = {
+  START: { label: '开始', color: 'green' },
+  APPROVAL: { label: '审批', color: 'blue' },
+  CONDITION: { label: '条件', color: 'orange' },
+  END: { label: '结束', color: 'purple' },
+};

@@ -10,6 +10,8 @@ import Knowledge from './pages/Knowledge';
 import Tasks from './pages/Tasks';
 import TaskDetail from './pages/TaskDetail';
 import Inbox from './pages/Inbox';
+import Workflow from './pages/Workflow';
+import WorkflowDesigner from './pages/WorkflowDesigner';
 
 // 路由表：/login 公开，其余页面在 Layout（含登录守卫）内
 export default function App() {
@@ -26,6 +28,8 @@ export default function App() {
         <Route path="tasks" element={<Tasks />} />
         <Route path="tasks/:id" element={<TaskDetail />} />
         <Route path="inbox" element={<Inbox />} />
+        <Route path="workflow" element={<Workflow />} />
+        <Route path="workflow/:id" element={<WorkflowDesigner />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -144,3 +144,34 @@ export interface InboxNotification {
   createdAt: number;
   read?: boolean;
 }
+
+// 审批流程定义（自研 SVG 工作流画布）
+export type WorkflowNodeType = 'START' | 'APPROVAL' | 'CONDITION' | 'END';
+
+export interface WorkflowNode {
+  id: string;
+  type: WorkflowNodeType;
+  title: string;
+  x: number;
+  y: number;
+  config?: Record<string, unknown>;
+}
+
+export interface WorkflowEdge {
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
+}
+
+export interface WorkflowDefinition {
+  id: string;
+  name: string;
+  approvalType: ApprovalType | null;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  createdBy: string;
+  createdByName: string;
+  createdAt: number;
+  updatedAt: number;
+}

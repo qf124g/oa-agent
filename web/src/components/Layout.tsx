@@ -8,6 +8,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   NotificationOutlined,
+  PartitionOutlined,
   ScheduleOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { to: '/directory', label: '人员管理', icon: <TeamOutlined /> },
   { to: '/knowledge', label: '知识库', icon: <BookOutlined /> },
   { to: '/tasks', label: '任务中心', icon: <ScheduleOutlined /> },
+  { to: '/workflow', label: '流程设计', icon: <PartitionOutlined /> },
   { to: '/inbox', label: '收件箱', icon: <InboxOutlined /> },
 ];
 
