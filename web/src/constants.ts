@@ -36,3 +36,12 @@ export const ROLE_LABEL: Record<string, string> = {
   EMPLOYEE: '员工',
   ADMIN: '管理员',
 };
+
+// 异步任务状态文案与 antd Tag 颜色映射
+export const TASK_STATUS: Record<string, { label: string; color: string }> = {
+  RUNNING: { label: '执行中', color: 'processing' },
+  WAITING_CONFIRM: { label: '待确认', color: 'warning' },
+  DONE: { label: '已完成', color: 'success' },
+  FAILED: { label: '失败', color: 'error' },
+  INTERRUPTED: { label: '已中断', color: 'default' },
+};

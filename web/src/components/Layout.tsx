@@ -7,6 +7,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   NotificationOutlined,
+  ScheduleOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
 import { Avatar, Button, Dropdown, Layout as AntdLayout, Menu, Space } from 'antd';
@@ -26,6 +27,7 @@ const NAV_ITEMS = [
   { to: '/announcement', label: '公告', icon: <NotificationOutlined /> },
   { to: '/directory', label: '人员管理', icon: <TeamOutlined /> },
   { to: '/knowledge', label: '知识库', icon: <BookOutlined /> },
+  { to: '/tasks', label: '任务中心', icon: <ScheduleOutlined /> },
 ];
 
 // 受保护的全局布局：登录守卫 + 侧边导航 + 顶栏 + 内容区 + 悬浮助手

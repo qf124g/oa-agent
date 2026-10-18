@@ -106,3 +106,31 @@ export interface AuthUser {
   departmentName: string;
   title: string;
 }
+
+// 异步任务（Agent 任务中心）
+export type AgentTaskStatus = 'RUNNING' | 'WAITING_CONFIRM' | 'DONE' | 'FAILED' | 'INTERRUPTED';
+
+export interface TaskStep {
+  id: string;
+  kind: 'log' | 'tool' | 'result' | 'confirm' | 'error';
+  title: string;
+  detail: string;
+  data?: unknown;
+  at: number;
+}
+
+export interface AgentTaskSummary {
+  id: string;
+  title: string;
+  status: AgentTaskStatus;
+  toolNames: string[];
+  stepCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AgentTask extends AgentTaskSummary {
+  sessionId: string;
+  result: string;
+  steps: TaskStep[];
+}
