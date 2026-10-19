@@ -51,17 +51,6 @@ export interface ConfirmationItem {
 // 消息流条目：普通消息或确认卡片
 export type ChatItem = AgentMessage | ConfirmationItem;
 
-// 待确认的写操作（由 confirmation_request 事件驱动）
-export interface ConfirmationRequest {
-  sessionId: string;
-  confirmId: string;
-  toolName: string;
-  title: string;
-  summary: string;
-  payload: Record<string, unknown>;
-  severity: 'normal' | 'high' | 'dangerous';
-}
-
 // 日志面板中的单条执行日志（由服务端 log 事件驱动）
 export interface LogEntry {
   id: string;

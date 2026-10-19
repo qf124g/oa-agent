@@ -32,7 +32,7 @@ function App() {
 | ChatPanel | 独立聊天面板组件（对话视图 / 日志视图切换） |
 | ConfirmCard | 写操作确认卡片（内联于消息流，操作摘要 + 风险等级标识 + 确认/取消按钮） |
 | useAgent | Hook，访问会话状态与操作方法 |
-| 类型 | AgentMessage、ToolCallView、ConfirmationRequest、SSEEvent、AuthHeaders 等 |
+| 类型 | AgentMessage、ToolCallView、ConfirmationItem、SSEEvent、AuthHeaders 等 |
 
 ## 特性
 

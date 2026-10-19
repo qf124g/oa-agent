@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatItem, ConfirmationRequest, LogEntry, SSEEvent } from './types';
+import type { ChatItem, LogEntry, SSEEvent } from './types';
 import { streamChat, confirmChat, connectEvents } from './sse-client';
 
 // 通过 context 暴露给子组件的 agent 会话能力
@@ -11,9 +11,8 @@ export interface AgentContextValue {
   error: string | null; // 最近一次错误
   open: boolean; // 会话面板是否展开
   unreadCount: number; // 面板关闭期间产生的新事件计数（蓝点依据）
-  pendingConfirmation: ConfirmationRequest | null; // 待确认的写操作
   sendMessage: (text: string) => Promise<void>;
-  confirm: (approved: boolean) => Promise<void>; // 确认/取消写操作
+  confirm: (confirmId: string, approved: boolean) => Promise<void>; // 按确认卡片逐项确认/取消写操作
   clear: () => void; // 清空消息并开启新会话
   openPanel: () => void;
   closePanel: () => void;
@@ -45,7 +44,6 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationRequest | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const openRef = useRef(false);
@@ -134,15 +132,6 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
       return;
     }
     if (event.type === 'confirmation_request') {
-      setPendingConfirmation({
-        sessionId: event.sessionId,
-        confirmId: event.confirmId,
-        toolName: event.toolName,
-        title: event.title,
-        summary: event.summary,
-        payload: event.payload,
-        severity: event.severity,
-      });
       // 确认卡片推入消息流，等待用户在卡片上确认/取消
       setMessages((prev) => [
         ...prev,
@@ -163,7 +152,6 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
       return;
     }
     if (event.type === 'confirmation_result') {
-      setPendingConfirmation(null);
       // 定格确认卡片状态为已确认/已取消
       setMessages((prev) =>
         prev.map((item) =>
@@ -255,12 +243,9 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
     [url, sessionId, isStreaming, handleEvent, getAuthHeaders]
   );
 
-  // 确认/取消写操作：先收起确认框，随后以 SSE 消费续传结果
+  // 确认/取消写操作：按确认卡片逐项处理，随后以 SSE 消费续传结果
   const confirm = useCallback(
-    async (approved: boolean) => {
-      if (!pendingConfirmation) return;
-      const { sessionId: confirmSessionId, confirmId } = pendingConfirmation;
-      setPendingConfirmation(null);
+    async (confirmId: string, approved: boolean) => {
       setError(null);
       setIsStreaming(true);
       const controller = new AbortController();
@@ -268,7 +253,7 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
       try {
         await confirmChat({
           url,
-          sessionId: confirmSessionId,
+          sessionId,
           confirmId,
           approved,
           onEvent: handleEvent,
@@ -284,7 +269,7 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
         abortRef.current = null;
       }
     },
-    [pendingConfirmation, url, handleEvent, getAuthHeaders]
+    [sessionId, url, handleEvent, getAuthHeaders]
   );
 
   // 清空消息并开启新会话
@@ -293,7 +278,6 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
     setMessages([]);
     setLogs([]);
     setError(null);
-    setPendingConfirmation(null);
     setSessionId(createId());
   }, []);
 
@@ -306,7 +290,6 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
       error,
       open,
       unreadCount,
-      pendingConfirmation,
       sendMessage,
       confirm,
       clear,
@@ -314,7 +297,7 @@ export function AgentProvider({ url, getAuthHeaders, children }: AgentProviderPr
       closePanel,
       togglePanel,
     }),
-    [messages, logs, isStreaming, sessionId, error, open, unreadCount, pendingConfirmation, sendMessage, confirm, clear, openPanel, closePanel, togglePanel]
+    [messages, logs, isStreaming, sessionId, error, open, unreadCount, sendMessage, confirm, clear, openPanel, closePanel, togglePanel]
   );
 
   return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;

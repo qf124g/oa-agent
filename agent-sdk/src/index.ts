@@ -7,4 +7,4 @@ export type { FloatingAssistantProps } from './components/FloatingAssistant';
 export { ChatPanel } from './components/ChatPanel';
 export type { ChatPanelProps } from './components/ChatPanel';
 export { ConfirmCard } from './components/ConfirmCard';
-export type { AgentMessage, ChatItem, ConfirmationItem, ToolCallView, ConfirmationRequest, SSEEvent, AuthHeaders } from './types';
+export type { AgentMessage, ChatItem, ConfirmationItem, ToolCallView, SSEEvent, AuthHeaders } from './types';

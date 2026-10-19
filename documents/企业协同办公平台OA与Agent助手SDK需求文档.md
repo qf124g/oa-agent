@@ -89,7 +89,7 @@ backend (Express 8080)               agent-server (Express 3002)
 
 ### 确认操作协议（Human-in-the-loop）
 
-状态机：`RUNNING → 拦截写工具 → 存 pendingConfirmation → 发 confirmation_request → 结束本轮 SSE →（前端消息流推入确认卡片，用户在卡片上确认/取消）→ POST /api/chat/confirm → 回填 tool_result → 续传 RUNNING → 最终答复 → done`
+状态机：`RUNNING → 拦截写工具 → 写入 pendingBatch 确认队列（该轮多个写工具各自入队）→ 逐个发 confirmation_request → 结束本轮 SSE →（前端消息流逐张推入确认卡片，用户逐项确认/取消）→ POST /api/chat/confirm → 本轮全部确认后按 tool_calls 原始顺序回填 tool 消息 → 续传 RUNNING → 最终答复 → done`
 
 确认接口：
 
@@ -98,7 +98,7 @@ POST /api/chat/confirm   body { sessionId, confirmId, approved }
 响应：新 SSE 流（confirmation_result → tool_call/tool_result → message_delta... → done）
 ```
 
-服务端：写工具在推理循环中、执行 executor 前被拦截；pendingConfirmation 记录 assistant tool_call 消息 + 工具名/args/toolCallId，confirmId 一次性消费且 5 分钟过期；确认后调 executeTool（真正落库）或构造取消结果，追加 tool 消息后继续循环。会话历史保留未完成的 assistant tool_call 消息作为恢复上下文。
+服务端：写工具在推理循环中、执行 executor 前被拦截；该轮全部 tool_calls 按其原始顺序记入 pendingBatch（toolCallIds + results + pending 队列）。同一轮内只读工具立即执行并把结果缓存进 results；写工具逐个生成 PendingConfirmation 入队并发 confirmation_request。confirmId 一次性消费且 5 分钟过期，用户逐项确认后调 executeTool（真正落库）或构造取消结果并缓存进 results；待本轮全部写操作处理完，按 toolCallIds 原始顺序一并回填 tool 消息后继续循环。会话历史保留未完成的 assistant tool_call 消息作为恢复上下文。
 
 前端（卡片式确认，非弹窗）：
 
@@ -106,7 +106,7 @@ POST /api/chat/confirm   body { sessionId, confirmId, approved }
 2. 卡片内容：操作徽标（normal 蓝标 / dangerous 红标）+ 操作标题 + 人类可读摘要（由服务端 WRITE_TOOL_META 的 summaryFields 拼装）+ 可折叠的操作参数 JSON + 「取消 / 确认执行」按钮
 3. 用户点击后按钮进入禁用态（防重复提交），SDK 调 POST /api/chat/confirm 续传
 4. 收到 confirmation_result 后卡片按 confirmId **定格为「已确认」（绿标）/「已取消」（灰标）**，不再消失，作为会话记录保留——回溯对话时能看清当时确认了什么操作
-5. 一个会话同一时刻至多一张待确认卡片（服务端单 pendingConfirmation 约束）；清空会话（新会话）时卡片随消息流一并清除
+5. 同一轮推理若返回多个写工具，会生成多张待确认卡片，用户逐项确认；清空会话（新会话）时卡片随消息流一并清除
 
 ### SSE 事件协议（11 种）
 
@@ -137,7 +137,7 @@ POST /api/chat 与 /api/chat/confirm 取 Bearer token → 调 backend GET /api/a
 agent-server/src/
   index.ts        # 路由：/api/chat、/api/chat/confirm、/api/health
   agent-loop.ts   # toolcall 多步推理循环 + 确认协议状态机
-  session.ts      # 会话存储与 pendingConfirmation
+  session.ts      # 会话存储与 pendingBatch 确认队列
   sse.ts          # SSE 事件封装
   auth.ts         # token 解析与用户校验
   prompts.ts      # System Prompt
@@ -183,7 +183,7 @@ agent-server/src/
 </AgentProvider>
 ```
 
-context 能力：open/close/toggle、sendMessage、消息流（ChatItem = 普通消息 AgentMessage | 确认卡片 ConfirmationItem）、unreadCount（未读角标）、pendingConfirmation、confirm(approved)、logs（执行日志）。
+context 能力：open/close/toggle、sendMessage、消息流（ChatItem = 普通消息 AgentMessage | 确认卡片 ConfirmationItem）、unreadCount（未读角标）、confirm(confirmId, approved)（按确认卡片逐项确认/取消）、logs（执行日志）。
 
 确认卡片（ConfirmCard）：消息流中的一等条目。confirmation_request 事件到达时在消息流尾部插入 pending 态卡片（含 title/summary/可折叠 payload，dangerous 红标）；用户在卡片上点「确认执行/取消」调 confirm；confirmation_result 事件按 confirmId 将卡片定格为已确认（绿标）/已取消（灰标），按钮区随之隐藏，卡片永久保留在会话记录中。
 

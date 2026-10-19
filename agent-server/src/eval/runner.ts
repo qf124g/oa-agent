@@ -27,7 +27,7 @@ export interface EvalResult {
 
 // 运行单条用例：直接驱动 agent 循环（离线，不经 HTTP/SSE），收集事件后按规则判定
 export async function runEvalCase(caseDef: EvalCase, opts: RunOptions): Promise<EvalResult> {
-  const session: Session = { history: [], token: opts.token, user: opts.user, pendingConfirmation: null };
+  const session: Session = { history: [], token: opts.token, user: opts.user, pendingBatch: null };
   session.history.push({ role: 'user', content: caseDef.question });
 
   const events: SSEEvent[] = [];
@@ -38,9 +38,9 @@ export async function runEvalCase(caseDef: EvalCase, opts: RunOptions): Promise<
 
   try {
     await runAgentLoop({ emit, session, sessionId, signal: AbortSignal.timeout(180000) });
-    // 写工具会以 confirmation_request 结束本轮；按 autoApprove 自动确认/取消后继续，直至产出最终答复
-    while (session.pendingConfirmation) {
-      const confirmId = session.pendingConfirmation.confirmId;
+    // 写工具会以 confirmation_request 结束本轮；按 autoApprove 逐项自动确认/取消后继续，直至产出最终答复
+    while (session.pendingBatch && session.pendingBatch.pending.length > 0) {
+      const confirmId = session.pendingBatch.pending[0].confirmId;
       await resumeAfterConfirmation({
         emit,
         session,

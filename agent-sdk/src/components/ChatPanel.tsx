@@ -72,7 +72,7 @@ export function ChatPanel(props: ChatPanelProps) {
             {messages.length === 0 && <div className="agent-chat-welcome">{welcomeText}</div>}
             {messages.map((item) =>
               item.kind === 'confirmation' ? (
-                <ConfirmCard key={item.id} item={item} busy={isStreaming} onConfirm={confirm} />
+                <ConfirmCard key={item.id} item={item} busy={isStreaming} onConfirm={(approved) => confirm(item.confirmId, approved)} />
               ) : (
                 <div key={item.id} className={`agent-chat-msg agent-chat-msg-${item.role}`}>
                   {item.role === 'assistant' &&

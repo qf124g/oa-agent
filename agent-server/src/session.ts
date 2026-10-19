@@ -15,12 +15,20 @@ export interface PendingConfirmation {
   expiresAt: number; // 过期时间戳，超时失效
 }
 
-// 单个会话的状态：消息历史 + 鉴权上下文 + 待确认写操作
+// 一轮待处理状态：记录该轮 assistant 消息全部 tool_calls 的原始顺序，
+// 以及各工具已就绪的结果；写工具结果需等用户逐项确认后才放入 results
+export interface PendingBatch {
+  toolCallIds: string[];            // 该轮 tool_calls 的原始顺序（回填 tool 消息的顺序依据）
+  results: Record<string, string>;  // toolCallId -> 序列化后的工具结果
+  pending: PendingConfirmation[];   // 待用户确认的写操作队列
+}
+
+// 单个会话的状态：消息历史 + 鉴权上下文 + 待确认写操作队列
 export interface Session {
   history: ChatCompletionMessageParam[];
   token: string;
   user: CurrentUser;
-  pendingConfirmation: PendingConfirmation | null;
+  pendingBatch: PendingBatch | null;
 }
 
 const sessions = new Map<string, Session>();
@@ -31,7 +39,7 @@ const MAX_HISTORY = 40;
 export function getOrCreateSession(sessionId: string, token: string, user: CurrentUser): Session {
   let session = sessions.get(sessionId);
   if (!session) {
-    session = { history: [], token, user, pendingConfirmation: null };
+    session = { history: [], token, user, pendingBatch: null };
     sessions.set(sessionId, session);
     return session;
   }

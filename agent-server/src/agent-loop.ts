@@ -10,7 +10,7 @@ import { TOOL_DEFINITIONS, isWriteTool, WRITE_TOOL_META, type WriteToolMeta } fr
 import { executeTool, stringifyToolResult } from './tools/executor';
 import { formatHistoryForRewrite } from './rag/query-rewrite';
 import type { SSEEvent } from './sse';
-import { truncateIfNeeded, type Session } from './session';
+import { truncateIfNeeded, type PendingBatch, type PendingConfirmation, type Session } from './session';
 
 // 单轮对话内允许的最大工具调用轮次，防止死循环
 const MAX_ROUNDS = 8;
@@ -149,46 +149,56 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
       continue;
     }
 
-    // 存在写工具：先执行只读工具（无副作用），再拦截写工具发确认请求
-    for (let i = 0; i < parsed.length; i++) {
-      if (isWriteTool(parsed[i].name)) continue;
-      await runAndEmit(emit, session, parsed[i].call.id, parsed[i].name, parsed[i].args, round);
+    // 存在写工具：建待处理批（含原始顺序），只读立即执行并缓存结果，写工具逐个入确认队列
+    const batch: PendingBatch = {
+      toolCallIds: parsed.map((p) => p.call.id),
+      results: {},
+      pending: [],
+    };
+
+    for (const p of parsed) {
+      if (isWriteTool(p.name)) continue;
+      const content = await executeToolAndEmit(emit, session, p.call.id, p.name, p.args, round);
+      batch.results[p.call.id] = content;
     }
 
-    const write = parsed[writeIdx];
-    const meta = WRITE_TOOL_META[write.name];
-    const pending = {
-      confirmId: randomUUID(),
-      toolName: write.name,
-      args: write.args,
-      toolCallId: write.call.id,
-      step: round,
-      title: meta.title,
-      summary: buildSummary(meta, write.args),
-      severity: meta.severity,
-      expiresAt: Date.now() + CONFIRM_TTL,
-    };
-    session.pendingConfirmation = pending;
+    for (const p of parsed) {
+      if (!isWriteTool(p.name)) continue;
+      const meta = WRITE_TOOL_META[p.name];
+      const pending: PendingConfirmation = {
+        confirmId: randomUUID(),
+        toolName: p.name,
+        args: p.args,
+        toolCallId: p.call.id,
+        step: round,
+        title: meta.title,
+        summary: buildSummary(meta, p.args),
+        severity: meta.severity,
+        expiresAt: Date.now() + CONFIRM_TTL,
+      };
+      batch.pending.push(pending);
 
-    emit({
-      type: 'log',
-      step: round,
-      title: `第 ${round} 步：等待用户确认`,
-      detail: `${meta.title}：${pending.summary}`,
-      data: write.args,
-    });
+      emit({
+        type: 'log',
+        step: round,
+        title: `第 ${round} 步：等待用户确认`,
+        detail: `${meta.title}：${pending.summary}`,
+        data: p.args,
+      });
 
-    emit({
-      type: 'confirmation_request',
-      sessionId,
-      confirmId: pending.confirmId,
-      toolName: write.name,
-      operationType: 'write',
-      title: meta.title,
-      summary: pending.summary,
-      payload: write.args,
-      severity: meta.severity,
-    });
+      emit({
+        type: 'confirmation_request',
+        sessionId,
+        confirmId: pending.confirmId,
+        toolName: p.name,
+        operationType: 'write',
+        title: meta.title,
+        summary: pending.summary,
+        payload: p.args,
+        severity: meta.severity,
+      });
+    }
+    session.pendingBatch = batch;
     return;
   }
 
@@ -205,13 +215,19 @@ export async function resumeAfterConfirmation(opts: {
   signal: AbortSignal;
 }): Promise<void> {
   const { emit, session, sessionId, confirmId, approved, signal } = opts;
-  const pending = session.pendingConfirmation;
-  if (!pending || pending.confirmId !== confirmId || pending.expiresAt < Date.now()) {
+  const batch = session.pendingBatch;
+  if (!batch) {
+    emit({ type: 'error', message: '当前没有待确认的操作' });
+    return;
+  }
+  const pending = batch.pending.find((p) => p.confirmId === confirmId);
+  if (!pending || pending.expiresAt < Date.now()) {
     emit({ type: 'error', message: '确认请求不存在或已过期' });
     return;
   }
   const step = pending.step;
-  session.pendingConfirmation = null;
+  // 从待确认队列移除该项（confirmId 一次性消费，防重放）
+  batch.pending = batch.pending.filter((p) => p.confirmId !== confirmId);
 
   emit({
     type: 'confirmation_result',
@@ -245,25 +261,32 @@ export async function resumeAfterConfirmation(opts: {
     data: result,
   });
 
-  // 追加 tool 结果，与先前未完成的 assistant tool_call 消息对应
-  session.history.push({
-    role: 'tool',
-    tool_call_id: pending.toolCallId,
-    content: stringifyToolResult(result),
-  });
+  // 缓存该写工具结果，待本轮全部写操作确认后按原始顺序回填
+  batch.results[pending.toolCallId] = stringifyToolResult(result);
+
+  // 若本轮还有未确认的写操作，等待用户逐项确认，暂不回填、不续跑
+  if (batch.pending.length > 0) {
+    return;
+  }
+
+  // 本轮全部写操作已处理：按 tool_calls 原始顺序回填 tool 消息（一个不能少），再续跑主循环
+  session.pendingBatch = null;
+  for (const toolCallId of batch.toolCallIds) {
+    session.history.push({ role: 'tool', tool_call_id: toolCallId, content: batch.results[toolCallId] ?? '{}' });
+  }
 
   await runAgentLoop({ emit, session, sessionId, signal });
 }
 
-// 执行单个工具并回传结果，同时把 tool 结果写入会话历史
-async function runAndEmit(
+// 执行单个工具并回传结果（事件输出），返回序列化结果字符串；不回写历史，由调用方决定回填时机
+async function executeToolAndEmit(
   emit: EventSink,
   session: Session,
   toolCallId: string,
   name: string,
   args: Record<string, unknown>,
   step: number
-): Promise<void> {
+): Promise<string> {
   emit({ type: 'tool_call', toolCallId, name, arguments: args });
   const { ok, result } = await executeTool(name, args, { token: session.token, history: formatHistoryForRewrite(session.history) });
   emit({ type: 'tool_result', toolCallId, name, ok, result });
@@ -274,10 +297,23 @@ async function runAndEmit(
     detail: ok ? '执行成功' : '执行失败',
     data: result,
   });
+  return stringifyToolResult(result);
+}
+
+// 执行单个工具并把结果立即写入会话历史（全部只读的分支使用）
+async function runAndEmit(
+  emit: EventSink,
+  session: Session,
+  toolCallId: string,
+  name: string,
+  args: Record<string, unknown>,
+  step: number
+): Promise<void> {
+  const content = await executeToolAndEmit(emit, session, toolCallId, name, args, step);
   session.history.push({
     role: 'tool',
     tool_call_id: toolCallId,
-    content: stringifyToolResult(result),
+    content,
   });
 }
 
