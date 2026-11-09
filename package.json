@@ -12,7 +12,8 @@
     "dev": "concurrently -n backend,agent,web \"npm run dev:backend\" \"npm run dev:agent\" \"npm run dev:web\"",
     "dev:backend": "npm run dev -w backend",
     "dev:agent": "npm run dev -w agent-server",
-    "dev:web": "npm run dev -w web"
+    "dev:web": "npm run dev -w web",
+    "review": "node scripts/ai-review.mjs --working"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

@@ -1,0 +1,38 @@
+# AI Review 卡点：PR 触发时自动审查代码变更
+# 流程：取 origin/main...HEAD 的 diff → 对照项目规范调大模型审查 → 结果评论到 PR
+# 存在 blocker 时脚本以非零状态退出，check 失败，PR 无法合并
+name: AI Review
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    # fork 发起的 PR 默认读不到仓库 secrets（OPENAI_API_KEY 缺失），仅审查本仓库内部 PR
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    # LLM 调用卡住时兜底释放 runner（脚本内部另有 8 分钟请求超时）
+    timeout-minutes: 15
+    # PR 评论需要 pull-requests: write（仓库默认 token 只读时评论会失败）
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: 检出代码（含完整历史，保证三点 diff 可用）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 运行 AI 审查
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/ai-review.mjs
