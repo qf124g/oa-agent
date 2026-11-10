@@ -2,6 +2,7 @@ import { config } from '../config';
 import { resolveUser } from '../auth';
 import { runEvalCase, type EvalResult } from './runner';
 import { EVAL_CASES } from './cases';
+import { writeTrace } from './trace';
 
 // 评测 CLI：离线批量运行评测集。
 // 用法：
@@ -38,9 +39,12 @@ async function main(): Promise<void> {
 
   let passed = 0;
   for (const caseDef of EVAL_CASES) {
-    const result = await runEvalCase(caseDef, { token, user, autoApprove });
+    const { result, events, session } = await runEvalCase(caseDef, { token, user, autoApprove });
     if (result.passed) passed++;
     printResult(result);
+    // 每条用例落盘完整消息序列 trace（模型每轮输入/返回 + 工具结果原文），供错误案例复盘
+    const traceFile = writeTrace(caseDef, events, session, result);
+    console.log(`  trace: ${traceFile}\n`);
   }
 
   console.log(`\n[eval] 结果：${passed}/${EVAL_CASES.length} 通过`);

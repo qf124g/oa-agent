@@ -25,9 +25,16 @@ export interface EvalResult {
   error?: string;
 }
 
+// 单条用例的运行产物：判定结果 + 事件流 + 会话（后两者供 trace 记录完整消息序列）
+export interface EvalRunOutcome {
+  result: EvalResult;
+  events: SSEEvent[];
+  session: Session;
+}
+
 // 运行单条用例：直接驱动 agent 循环（离线，不经 HTTP/SSE），收集事件后按规则判定
-export async function runEvalCase(caseDef: EvalCase, opts: RunOptions): Promise<EvalResult> {
-  const session: Session = { history: [], token: opts.token, user: opts.user, pendingBatch: null };
+export async function runEvalCase(caseDef: EvalCase, opts: RunOptions): Promise<EvalRunOutcome> {
+  const session: Session = { history: [], token: opts.token, user: opts.user, pendingBatch: null, failedSigs: new Map() };
   session.history.push({ role: 'user', content: caseDef.question });
 
   const events: SSEEvent[] = [];
@@ -52,23 +59,29 @@ export async function runEvalCase(caseDef: EvalCase, opts: RunOptions): Promise<
     }
   } catch (err) {
     return {
-      ...buildBase(caseDef, events, session),
-      passed: false,
-      error: err instanceof Error ? err.message : String(err),
+      result: {
+        ...buildBase(caseDef, events, session),
+        passed: false,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      events,
+      session,
     };
   }
 
-  return judge(caseDef, events, session);
+  return { result: judge(caseDef, events, session), events, session };
 }
 
-// 规则判定：工具命中 + 关键词，任一不满足即不通过
+// 规则判定：工具命中 + 禁止工具 + 关键词，任一不满足即不通过
 function judge(caseDef: EvalCase, events: SSEEvent[], session: Session): EvalResult {
   const result = buildBase(caseDef, events, session);
 
   const toolMatch = caseDef.expectTools.every((t) => result.toolsCalled.includes(t));
+  const forbidToolHit = (caseDef.forbidTools ?? []).filter((t) => result.toolsCalled.includes(t));
   const keywordsMiss = result.keywordsMiss.length === 0;
   const forbidHit = (caseDef.forbidKeywords ?? []).filter((k) => result.finalAnswer.includes(k)).length === 0;
-  result.passed = toolMatch && keywordsMiss && forbidHit;
+  result.passed = toolMatch && forbidToolHit.length === 0 && keywordsMiss && forbidHit;
+  if (forbidToolHit.length > 0) result.error = `调用了禁止工具: ${forbidToolHit.join(', ')}`;
 
   return result;
 }

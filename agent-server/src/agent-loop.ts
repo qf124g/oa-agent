@@ -10,7 +10,7 @@ import { TOOL_DEFINITIONS, isWriteTool, WRITE_TOOL_META, type WriteToolMeta } fr
 import { executeTool, stringifyToolResult } from './tools/executor';
 import { formatHistoryForRewrite } from './rag/query-rewrite';
 import type { SSEEvent } from './sse';
-import { truncateIfNeeded, type PendingBatch, type PendingConfirmation, type Session } from './session';
+import { truncateIfNeeded, signatureOf, type PendingBatch, type PendingConfirmation, type Session } from './session';
 
 // 单轮对话内允许的最大工具调用轮次，防止死循环
 const MAX_ROUNDS = 8;
@@ -141,9 +141,10 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
 
     emit({ type: 'message_end', finishReason: writeIdx === -1 ? 'tool_calls' : 'confirmation_required' });
 
-    // 全部只读：顺序执行后进入下一轮
+    // 全部只读：顺序执行后进入下一轮（同签名重试由 L2 短路，不真正执行）
     if (writeIdx === -1) {
       for (const p of parsed) {
+        if (shortCircuitIfRepeated(session, p.name, p.args, emit, round) !== null) continue;
         await runAndEmit(emit, session, p.call.id, p.name, p.args, round);
       }
       continue;
@@ -158,12 +159,23 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
 
     for (const p of parsed) {
       if (isWriteTool(p.name)) continue;
-      const content = await executeToolAndEmit(emit, session, p.call.id, p.name, p.args, round);
+      const blocked = shortCircuitIfRepeated(session, p.name, p.args, emit, round);
+      if (blocked !== null) {
+        batch.results[p.call.id] = blocked;
+        continue;
+      }
+      const { content } = await executeToolAndEmit(emit, session, p.call.id, p.name, p.args, round);
       batch.results[p.call.id] = content;
     }
 
     for (const p of parsed) {
       if (!isWriteTool(p.name)) continue;
+      // L2：同签名写调用已失败过则短路——不执行、不入确认队列（避免重复弹窗骚扰用户）
+      const blocked = shortCircuitIfRepeated(session, p.name, p.args, emit, round);
+      if (blocked !== null) {
+        batch.results[p.call.id] = blocked;
+        continue;
+      }
       const meta = WRITE_TOOL_META[p.name];
       const pending: PendingConfirmation = {
         confirmId: randomUUID(),
@@ -198,6 +210,15 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
         severity: meta.severity,
       });
     }
+    // 整批调用全部被短路：无待确认项，直接按原始顺序回填短路结果并续跑，
+    // 让模型基于「禁止重复执行」指令重新规划（否则会挂起等待不存在的确认）
+    if (batch.pending.length === 0) {
+      for (const toolCallId of batch.toolCallIds) {
+        history.push({ role: 'tool', tool_call_id: toolCallId, content: batch.results[toolCallId] ?? '{}' });
+      }
+      continue;
+    }
+
     session.pendingBatch = batch;
     return;
   }
@@ -249,6 +270,8 @@ export async function resumeAfterConfirmation(opts: {
     const executed = await executeTool(pending.toolName, pending.args, { token: session.token, history: formatHistoryForRewrite(session.history) });
     ok = executed.ok;
     result = executed.result;
+    // 确认执行的写操作失败也登记签名：模型若原样重试将被短路，不再重复弹确认框
+    if (!ok) recordFailure(session, pending.toolName, pending.args);
   } else {
     result = { cancelled: true, message: '用户已取消该操作' };
   }
@@ -278,7 +301,43 @@ export async function resumeAfterConfirmation(opts: {
   await runAgentLoop({ emit, session, sessionId, signal });
 }
 
-// 执行单个工具并回传结果（事件输出），返回序列化结果字符串；不回写历史，由调用方决定回填时机
+// L2 同签名短路：该调用签名已失败过则拦截——不真正执行（写工具也不弹确认框），
+// 直接构造「禁止重复执行 + 三选一」纠偏指令作为 tool 结果回注，打破模型重复调用循环。
+// 返回短路结果字符串；未命中短路返回 null
+function shortCircuitIfRepeated(
+  session: Session,
+  name: string,
+  args: Record<string, unknown>,
+  emit: EventSink,
+  step: number
+): string | null {
+  const sig = signatureOf(name, args);
+  const failedTimes = session.failedSigs.get(sig) ?? 0;
+  if (failedTimes < 1) return null;
+
+  emit({
+    type: 'log',
+    step,
+    title: `第 ${step} 步：拦截重复调用 ${name}`,
+    detail: `相同工具相同参数已失败 ${failedTimes} 次，本次短路，未真正执行`,
+    data: args,
+  });
+
+  return JSON.stringify({
+    error: 'DUPLICATE_CALL_BLOCKED',
+    tool: name,
+    detail: `该调用（相同工具、相同参数）此前已执行并失败 ${failedTimes} 次，已被拦截，本次未真正执行。`,
+    required_action: '禁止原样重试。你必须三选一：1. 修改参数后重试；2. 更换其他工具达成目标；3. 向用户说明卡点并请求补充信息。',
+  });
+}
+
+// L1 失败登记：工具执行失败时累计该签名的失败次数，供后续同签名调用短路判定
+function recordFailure(session: Session, name: string, args: Record<string, unknown>): void {
+  const sig = signatureOf(name, args);
+  session.failedSigs.set(sig, (session.failedSigs.get(sig) ?? 0) + 1);
+}
+
+// 执行单个工具并回传结果（事件输出），返回执行是否成功与序列化结果；不回写历史，由调用方决定回填时机
 async function executeToolAndEmit(
   emit: EventSink,
   session: Session,
@@ -286,7 +345,7 @@ async function executeToolAndEmit(
   name: string,
   args: Record<string, unknown>,
   step: number
-): Promise<string> {
+): Promise<{ ok: boolean; content: string }> {
   emit({ type: 'tool_call', toolCallId, name, arguments: args });
   const { ok, result } = await executeTool(name, args, { token: session.token, history: formatHistoryForRewrite(session.history) });
   emit({ type: 'tool_result', toolCallId, name, ok, result });
@@ -297,7 +356,8 @@ async function executeToolAndEmit(
     detail: ok ? '执行成功' : '执行失败',
     data: result,
   });
-  return stringifyToolResult(result);
+  if (!ok) recordFailure(session, name, args);
+  return { ok, content: stringifyToolResult(result) };
 }
 
 // 执行单个工具并把结果立即写入会话历史（全部只读的分支使用）
@@ -309,7 +369,7 @@ async function runAndEmit(
   args: Record<string, unknown>,
   step: number
 ): Promise<void> {
-  const content = await executeToolAndEmit(emit, session, toolCallId, name, args, step);
+  const { content } = await executeToolAndEmit(emit, session, toolCallId, name, args, step);
   session.history.push({
     role: 'tool',
     tool_call_id: toolCallId,

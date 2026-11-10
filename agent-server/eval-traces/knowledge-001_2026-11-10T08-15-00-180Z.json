@@ -1,0 +1,578 @@
+{
+  "case": {
+    "id": "knowledge-001",
+    "name": "知识库检索：报销流程",
+    "question": "公司的报销流程是怎样的？"
+  },
+  "result": {
+    "passed": true,
+    "expectedTools": [
+      "search_knowledge"
+    ],
+    "toolsCalled": [
+      "search_knowledge",
+      "list_knowledge_documents"
+    ],
+    "finalAnswer": "我尝试检索知识库时遇到了问题，如实说明如下：\n\n**检索结果**\n- 知识库中确实存在一篇《报销流程说明》（文档 ID：K002，分类：制度，上传人：李娜）。\n- 但语义检索接口当前返回错误（404 Model not exist），文档列表接口也不返回正文内容，因此我无法读取到这篇文档的完整条款，无法向你准确转述公司规定的报销流程细节。\n\n**在平台上可操作的部分（基于系统功能）**\n1. 提交报销：发起一笔「报销」类型的审批申请，需填写标题、金额（元）和明细信息（如费用发生日期、事由、票据张数等）。\n2. 等待审批：由审批人（管理员）在「待我审批」中处理，结果为通过或驳回（驳回会附带理由）。\n3. 跟踪进度：在「我的审批」中按类型（报销）和状态（待审批/已通过/已驳回）查看进展。\n\n如果你需要，我可以：\n- 帮你按《报销流程说明》的正式规定重新检索一次（接口恢复后）；\n- 或者直接协助你发起一笔报销申请；\n- 或者汇总你已有的报销申请并做金额统计。\n\n请告知你想执行哪一项。",
+    "error": null
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "inputMessages": [
+        {
+          "role": "system",
+          "content": "你是企业协同办公平台（OA）的智能助手，帮助员工查询和处理日常工作事务。\n当前登录用户是「陈昊」。今天是 2026-11-10，\"本月\"指 2026-11-10 所在月份。\n你可以调用工具查询和处理待办、审批、公告、通讯录、知识库等真实数据。\n回答规则：\n1. 只基于工具返回的数据回答，禁止编造数字或事实；工具未返回的信息如实说明查不到。\n2. 金额单位为元，保留两位小数。\n3. 用户提到员工姓名时，先用 list_employees 按姓名关键字确认员工 ID，再按 ID 查询明细。\n4. 用户询问知识、概念、定义、制度、流程、操作规范、常见问题、操作说明等内容（含「是什么」「如何」「介绍」「说明」等问法）时，必须先调用 search_knowledge 检索知识库，并用检索到的知识库内容优先回答；即使你已知晓该概念，也应以知识库内容为准，只有知识库确无相关结果时才可用自身知识补充。\n5. 涉及新建、完成、审批、驳回、发布、删除等写操作时，调用对应写工具，由系统向用户确认后执行。\n6. 查询条件不足时，先向用户确认，或查询整体数据后再回答。\n7. 使用中文回答，简洁清晰，涉及多条数据时可用列表呈现。\n8. 回答中不要使用 emoji 表情符号。\n9. 当回答适合用图表展示数据（如数量分布、比例对比、趋势变化）时，可输出一个图表代码块，格式为 ```chart 换行后接一行 JSON 换行后接 ```。JSON 结构为 {\"type\":\"column\",\"xField\":\"名称\",\"yField\":\"数量\",\"data\":[{\"名称\":\"待处理\",\"数量\":3}]}：type 取 column（柱状图）/ bar（条形图）/ line（折线图）/ pie（饼图）之一；xField、yField 为字段名字符串，data 为对象数组且对象键名必须与 xField、yField 完全一致；可选 title（字符串标题）、height（数字高度）。图表数据只能来自工具返回的真实数据，禁止编造。\n\n可用技能（当用户任务与技能描述匹配时，先调用 use_skill 读取步骤）：\n- expense-report：汇总用户的报销申请数据并进行金额统计\n- new-employee-onboarding：协助管理员办理新员工入职，创建入职待办清单并核对部门信息\n- weekly-report：汇总用户本周的待办与审批数据，生成结构化周报"
+        },
+        {
+          "role": "user",
+          "content": "公司的报销流程是怎样的？"
+        }
+      ],
+      "assistantText": "",
+      "toolCalls": [
+        {
+          "id": "call_336bcdc931c14dbb9b162ccf",
+          "name": "search_knowledge",
+          "arguments": {
+            "query": "报销流程 如何提交报销 审批"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "name": "search_knowledge",
+          "ok": false,
+          "result": {
+            "error": "知识库检索失败: 404 Model not exist."
+          }
+        }
+      ],
+      "logs": [
+        {
+          "title": "第 1 步：模型回复（流式）",
+          "detail": "模型决定调用 1 个工具"
+        },
+        {
+          "title": "第 1 步：决策工具 search_knowledge",
+          "detail": "只读操作，直接执行"
+        },
+        {
+          "title": "第 1 步：工具返回 search_knowledge",
+          "detail": "执行失败"
+        },
+        {
+          "title": "第 2 步：模型思考",
+          "detail": "调用大模型，携带 OA 工具定义"
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "inputMessages": [
+        {
+          "role": "system",
+          "content": "[system 提示词已折叠，共 1029 字]"
+        },
+        {
+          "role": "user",
+          "content": "公司的报销流程是怎样的？"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_336bcdc931c14dbb9b162ccf",
+              "name": "search_knowledge",
+              "arguments": {
+                "query": "报销流程 如何提交报销 审批"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_336bcdc931c14dbb9b162ccf",
+          "content": "{\"error\":\"知识库检索失败: 404 Model not exist.\"}"
+        }
+      ],
+      "assistantText": "",
+      "toolCalls": [
+        {
+          "id": "call_cde5c76dc7df44e79e9a34c4",
+          "name": "list_knowledge_documents",
+          "arguments": {
+            "category": "流程",
+            "pageSize": 50
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "name": "list_knowledge_documents",
+          "ok": true,
+          "result": {
+            "list": [],
+            "total": 0,
+            "page": 1,
+            "pageSize": 50
+          }
+        }
+      ],
+      "logs": [
+        {
+          "title": "第 2 步：模型回复（流式）",
+          "detail": "模型决定调用 1 个工具"
+        },
+        {
+          "title": "第 2 步：决策工具 list_knowledge_documents",
+          "detail": "只读操作，直接执行"
+        },
+        {
+          "title": "第 2 步：工具返回 list_knowledge_documents",
+          "detail": "执行成功"
+        },
+        {
+          "title": "第 3 步：模型思考",
+          "detail": "调用大模型，携带 OA 工具定义"
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "inputMessages": [
+        {
+          "role": "system",
+          "content": "[system 提示词已折叠，共 1029 字]"
+        },
+        {
+          "role": "user",
+          "content": "公司的报销流程是怎样的？"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_336bcdc931c14dbb9b162ccf",
+              "name": "search_knowledge",
+              "arguments": {
+                "query": "报销流程 如何提交报销 审批"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_336bcdc931c14dbb9b162ccf",
+          "content": "{\"error\":\"知识库检索失败: 404 Model not exist.\"}"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_cde5c76dc7df44e79e9a34c4",
+              "name": "list_knowledge_documents",
+              "arguments": {
+                "category": "流程",
+                "pageSize": 50
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_cde5c76dc7df44e79e9a34c4",
+          "content": "{\"list\":[],\"total\":0,\"page\":1,\"pageSize\":50}"
+        }
+      ],
+      "assistantText": "",
+      "toolCalls": [
+        {
+          "id": "call_9543593e9fb94128b1135d9a",
+          "name": "list_knowledge_documents",
+          "arguments": {
+            "pageSize": 50
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "name": "list_knowledge_documents",
+          "ok": true,
+          "result": {
+            "list": [
+              {
+                "id": "K001",
+                "title": "考勤管理制度",
+                "content": null,
+                "category": "制度",
+                "uploadedBy": "E003",
+                "createdAt": 1794298288101,
+                "updatedAt": 1794298288101,
+                "uploadedByName": "李娜"
+              },
+              {
+                "id": "K002",
+                "title": "报销流程说明",
+                "content": null,
+                "category": "制度",
+                "uploadedBy": "E003",
+                "createdAt": 1794298288101,
+                "updatedAt": 1794298288101,
+                "uploadedByName": "李娜"
+              },
+              {
+                "id": "K003",
+                "title": "办公环境FAQ",
+                "content": null,
+                "category": "制度",
+                "uploadedBy": "E003",
+                "createdAt": 1794298288101,
+                "updatedAt": 1794298288101,
+                "uploadedByName": "李娜"
+              },
+              {
+                "id": "K004",
+                "title": "产品需求规格说明",
+                "content": null,
+                "category": "制度",
+                "uploadedBy": "E003",
+                "createdAt": 1794298288101,
+                "updatedAt": 1794298288101,
+                "uploadedByName": "李娜"
+              },
+              {
+                "id": "K005",
+                "title": "财务核算公式手册",
+                "content": null,
+                "category": "制度",
+                "uploadedBy": "E003",
+                "createdAt": 1794298288101,
+                "updatedAt": 1794298288101,
+                "uploadedByName": "李娜"
+              },
+              {
+                "id": "K006",
+                "title": "长文本压力测试",
+                "content": null,
+                "category": "制度",
+                "uploadedBy": "E003",
+                "createdAt": 1794298288101,
+                "updatedAt": 1794298288101,
+                "uploadedByName": "李娜"
+              }
+            ],
+            "total": 6,
+            "page": 1,
+            "pageSize": 50
+          }
+        }
+      ],
+      "logs": [
+        {
+          "title": "第 3 步：模型回复（流式）",
+          "detail": "模型决定调用 1 个工具"
+        },
+        {
+          "title": "第 3 步：决策工具 list_knowledge_documents",
+          "detail": "只读操作，直接执行"
+        },
+        {
+          "title": "第 3 步：工具返回 list_knowledge_documents",
+          "detail": "执行成功"
+        },
+        {
+          "title": "第 4 步：模型思考",
+          "detail": "调用大模型，携带 OA 工具定义"
+        }
+      ]
+    },
+    {
+      "round": 4,
+      "inputMessages": [
+        {
+          "role": "system",
+          "content": "[system 提示词已折叠，共 1029 字]"
+        },
+        {
+          "role": "user",
+          "content": "公司的报销流程是怎样的？"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_336bcdc931c14dbb9b162ccf",
+              "name": "search_knowledge",
+              "arguments": {
+                "query": "报销流程 如何提交报销 审批"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_336bcdc931c14dbb9b162ccf",
+          "content": "{\"error\":\"知识库检索失败: 404 Model not exist.\"}"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_cde5c76dc7df44e79e9a34c4",
+              "name": "list_knowledge_documents",
+              "arguments": {
+                "category": "流程",
+                "pageSize": 50
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_cde5c76dc7df44e79e9a34c4",
+          "content": "{\"list\":[],\"total\":0,\"page\":1,\"pageSize\":50}"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_9543593e9fb94128b1135d9a",
+              "name": "list_knowledge_documents",
+              "arguments": {
+                "pageSize": 50
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_9543593e9fb94128b1135d9a",
+          "content": "{\"list\":[{\"id\":\"K001\",\"title\":\"考勤管理制度\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K002\",\"title\":\"报销流程说明\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K003\",\"title\":\"办公环境FAQ\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K004\",\"title\":\"产品需求规格说明\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K005\",\"title\":\"财务核算公式手册\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K006\",\"title\":\"长文本压力测试\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"}],\"total\":6,\"page\":1,\"pageSize\":50}"
+        }
+      ],
+      "assistantText": "",
+      "toolCalls": [
+        {
+          "id": "call_e80abd06736c4f9b857d8063",
+          "name": "search_knowledge",
+          "arguments": {
+            "query": "报销流程说明"
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "name": "search_knowledge",
+          "ok": false,
+          "result": {
+            "error": "知识库检索失败: 404 Model not exist."
+          }
+        }
+      ],
+      "logs": [
+        {
+          "title": "第 4 步：模型回复（流式）",
+          "detail": "模型决定调用 1 个工具"
+        },
+        {
+          "title": "第 4 步：决策工具 search_knowledge",
+          "detail": "只读操作，直接执行"
+        },
+        {
+          "title": "第 4 步：工具返回 search_knowledge",
+          "detail": "执行失败"
+        },
+        {
+          "title": "第 5 步：模型思考",
+          "detail": "调用大模型，携带 OA 工具定义"
+        }
+      ]
+    },
+    {
+      "round": 5,
+      "inputMessages": [
+        {
+          "role": "system",
+          "content": "[system 提示词已折叠，共 1029 字]"
+        },
+        {
+          "role": "user",
+          "content": "公司的报销流程是怎样的？"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_336bcdc931c14dbb9b162ccf",
+              "name": "search_knowledge",
+              "arguments": {
+                "query": "报销流程 如何提交报销 审批"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_336bcdc931c14dbb9b162ccf",
+          "content": "{\"error\":\"知识库检索失败: 404 Model not exist.\"}"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_cde5c76dc7df44e79e9a34c4",
+              "name": "list_knowledge_documents",
+              "arguments": {
+                "category": "流程",
+                "pageSize": 50
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_cde5c76dc7df44e79e9a34c4",
+          "content": "{\"list\":[],\"total\":0,\"page\":1,\"pageSize\":50}"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_9543593e9fb94128b1135d9a",
+              "name": "list_knowledge_documents",
+              "arguments": {
+                "pageSize": 50
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_9543593e9fb94128b1135d9a",
+          "content": "{\"list\":[{\"id\":\"K001\",\"title\":\"考勤管理制度\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K002\",\"title\":\"报销流程说明\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K003\",\"title\":\"办公环境FAQ\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K004\",\"title\":\"产品需求规格说明\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K005\",\"title\":\"财务核算公式手册\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K006\",\"title\":\"长文本压力测试\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"}],\"total\":6,\"page\":1,\"pageSize\":50}"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_e80abd06736c4f9b857d8063",
+              "name": "search_knowledge",
+              "arguments": {
+                "query": "报销流程说明"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_e80abd06736c4f9b857d8063",
+          "content": "{\"error\":\"知识库检索失败: 404 Model not exist.\"}"
+        }
+      ],
+      "assistantText": "我尝试检索知识库时遇到了问题，如实说明如下：\n\n**检索结果**\n- 知识库中确实存在一篇《报销流程说明》（文档 ID：K002，分类：制度，上传人：李娜）。\n- 但语义检索接口当前返回错误（404 Model not exist），文档列表接口也不返回正文内容，因此我无法读取到这篇文档的完整条款，无法向你准确转述公司规定的报销流程细节。\n\n**在平台上可操作的部分（基于系统功能）**\n1. 提交报销：发起一笔「报销」类型的审批申请，需填写标题、金额（元）和明细信息（如费用发生日期、事由、票据张数等）。\n2. 等待审批：由审批人（管理员）在「待我审批」中处理，结果为通过或驳回（驳回会附带理由）。\n3. 跟踪进度：在「我的审批」中按类型（报销）和状态（待审批/已通过/已驳回）查看进展。\n\n如果你需要，我可以：\n- 帮你按《报销流程说明》的正式规定重新检索一次（接口恢复后）；\n- 或者直接协助你发起一笔报销申请；\n- 或者汇总你已有的报销申请并做金额统计。\n\n请告知你想执行哪一项。",
+      "toolCalls": [],
+      "toolResults": [],
+      "logs": [
+        {
+          "title": "第 5 步：模型回复（流式）",
+          "detail": "模型给出纯文本回答"
+        }
+      ]
+    }
+  ],
+  "finalHistory": [
+    {
+      "role": "user",
+      "content": "公司的报销流程是怎样的？"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_336bcdc931c14dbb9b162ccf",
+          "name": "search_knowledge",
+          "arguments": {
+            "query": "报销流程 如何提交报销 审批"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_336bcdc931c14dbb9b162ccf",
+      "content": "{\"error\":\"知识库检索失败: 404 Model not exist.\"}"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_cde5c76dc7df44e79e9a34c4",
+          "name": "list_knowledge_documents",
+          "arguments": {
+            "category": "流程",
+            "pageSize": 50
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_cde5c76dc7df44e79e9a34c4",
+      "content": "{\"list\":[],\"total\":0,\"page\":1,\"pageSize\":50}"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_9543593e9fb94128b1135d9a",
+          "name": "list_knowledge_documents",
+          "arguments": {
+            "pageSize": 50
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_9543593e9fb94128b1135d9a",
+      "content": "{\"list\":[{\"id\":\"K001\",\"title\":\"考勤管理制度\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K002\",\"title\":\"报销流程说明\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K003\",\"title\":\"办公环境FAQ\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K004\",\"title\":\"产品需求规格说明\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K005\",\"title\":\"财务核算公式手册\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"},{\"id\":\"K006\",\"title\":\"长文本压力测试\",\"content\":null,\"category\":\"制度\",\"uploadedBy\":\"E003\",\"createdAt\":1794298288101,\"updatedAt\":1794298288101,\"uploadedByName\":\"李娜\"}],\"total\":6,\"page\":1,\"pageSize\":50}"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_e80abd06736c4f9b857d8063",
+          "name": "search_knowledge",
+          "arguments": {
+            "query": "报销流程说明"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_e80abd06736c4f9b857d8063",
+      "content": "{\"error\":\"知识库检索失败: 404 Model not exist.\"}"
+    },
+    {
+      "role": "assistant",
+      "content": "我尝试检索知识库时遇到了问题，如实说明如下：\n\n**检索结果**\n- 知识库中确实存在一篇《报销流程说明》（文档 ID：K002，分类：制度，上传人：李娜）。\n- 但语义检索接口当前返回错误（404 Model not exist），文档列表接口也不返回正文内容，因此我无法读取到这篇文档的完整条款，无法向你准确转述公司规定的报销流程细节。\n\n**在平台上可操作的部分（基于系统功能）**\n1. 提交报销：发起一笔「报销」类型的审批申请，需填写标题、金额（元）和明细信息（如费用发生日期、事由、票据张数等）。\n2. 等待审批：由审批人（管理员）在「待我审批」中处理，结果为通过或驳回（驳回会附带理由）。\n3. 跟踪进度：在「我的审批」中按类型（报销）和状态（待审批/已通过/已驳回）查看进展。\n\n如果你需要，我可以：\n- 帮你按《报销流程说明》的正式规定重新检索一次（接口恢复后）；\n- 或者直接协助你发起一笔报销申请；\n- 或者汇总你已有的报销申请并做金额统计。\n\n请告知你想执行哪一项。"
+    }
+  ],
+  "recordedAt": "2026-11-10T08:15:00.180Z"
+}

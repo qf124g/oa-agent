@@ -23,12 +23,14 @@ export interface PendingBatch {
   pending: PendingConfirmation[];   // 待用户确认的写操作队列
 }
 
-// 单个会话的状态：消息历史 + 鉴权上下文 + 待确认写操作队列
+// 单个会话的状态：消息历史 + 鉴权上下文 + 待确认写操作队列 + 重复失败签名计数
 export interface Session {
   history: ChatCompletionMessageParam[];
   token: string;
   user: CurrentUser;
   pendingBatch: PendingBatch | null;
+  // L1 重复签名检测：签名 -> 该调用已累计失败次数（同签名第二次起被 L2 短路）
+  failedSigs: Map<string, number>;
 }
 
 const sessions = new Map<string, Session>();
@@ -39,7 +41,7 @@ const MAX_HISTORY = 40;
 export function getOrCreateSession(sessionId: string, token: string, user: CurrentUser): Session {
   let session = sessions.get(sessionId);
   if (!session) {
-    session = { history: [], token, user, pendingBatch: null };
+    session = { history: [], token, user, pendingBatch: null, failedSigs: new Map() };
     sessions.set(sessionId, session);
     return session;
   }
@@ -51,6 +53,11 @@ export function getOrCreateSession(sessionId: string, token: string, user: Curre
 
 export function getSession(sessionId: string): Session | undefined {
   return sessions.get(sessionId);
+}
+
+// L1 调用签名：工具名 + 规范化参数（key 排序后序列化，保证 {"a":1,"b":2} 与 {"b":2,"a":1} 同签名）
+export function signatureOf(name: string, args: Record<string, unknown>): string {
+  return `${name}:${JSON.stringify(args, Object.keys(args).sort())}`;
 }
 
 // 截断历史：从头部删到某个 user 消息之后，保证不会把 tool 消息拆成开头（tool 消息必须紧跟对应的 assistant 消息）

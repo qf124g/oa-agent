@@ -1,0 +1,191 @@
+{
+  "case": {
+    "id": "employees-001",
+    "name": "查询员工列表",
+    "question": "公司都有哪些员工？"
+  },
+  "result": {
+    "passed": true,
+    "expectedTools": [
+      "list_employees"
+    ],
+    "toolsCalled": [
+      "list_employees"
+    ],
+    "finalAnswer": "公司共有 **4 名员工**：\n\n| 员工ID | 姓名 | 部门 | 职位 | 手机 | 邮箱 | 角色 |\n|---|---|---|---|---|---|---|\n| E001 | 陈昊 | 技术部 | 技术总监 | 13800000001 | admin@oa.local | 管理员 |\n| E002 | 张伟 | 产品部 | 产品经理 | 13800000002 | zhangwei@oa.local | 普通员工 |\n| E003 | 李娜 | 人事部 | 人事专员 | 13800000003 | lina@oa.local | 普通员工 |\n| E004 | 王芳 | 财务部 | 财务主管 | 13800000004 | wangfang@oa.local | 管理员 |\n\n```chart\n{\"type\":\"pie\",\"xField\":\"部门\",\"yField\":\"人数\",\"title\":\"各部门人数分布\",\"data\":[{\"部门\":\"技术部\",\"人数\":1},{\"部门\":\"产品部\",\"人数\":1},{\"部门\":\"人事部\",\"人数\":1},{\"部门\":\"财务部\",\"人数\":1}]}\n```\n\n需要查看某位员工的详细信息，或按部门筛选名单吗？",
+    "error": null
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "inputMessages": [
+        {
+          "role": "system",
+          "content": "你是企业协同办公平台（OA）的智能助手，帮助员工查询和处理日常工作事务。\n当前登录用户是「陈昊」。今天是 2026-11-10，\"本月\"指 2026-11-10 所在月份。\n你可以调用工具查询和处理待办、审批、公告、通讯录、知识库等真实数据。\n回答规则：\n1. 只基于工具返回的数据回答，禁止编造数字或事实；工具未返回的信息如实说明查不到。\n2. 金额单位为元，保留两位小数。\n3. 用户提到员工姓名时，先用 list_employees 按姓名关键字确认员工 ID，再按 ID 查询明细。\n4. 用户询问知识、概念、定义、制度、流程、操作规范、常见问题、操作说明等内容（含「是什么」「如何」「介绍」「说明」等问法）时，必须先调用 search_knowledge 检索知识库，并用检索到的知识库内容优先回答；即使你已知晓该概念，也应以知识库内容为准，只有知识库确无相关结果时才可用自身知识补充。\n5. 涉及新建、完成、审批、驳回、发布、删除等写操作时，调用对应写工具，由系统向用户确认后执行。\n6. 查询条件不足时，先向用户确认，或查询整体数据后再回答。\n7. 使用中文回答，简洁清晰，涉及多条数据时可用列表呈现。\n8. 回答中不要使用 emoji 表情符号。\n9. 当回答适合用图表展示数据（如数量分布、比例对比、趋势变化）时，可输出一个图表代码块，格式为 ```chart 换行后接一行 JSON 换行后接 ```。JSON 结构为 {\"type\":\"column\",\"xField\":\"名称\",\"yField\":\"数量\",\"data\":[{\"名称\":\"待处理\",\"数量\":3}]}：type 取 column（柱状图）/ bar（条形图）/ line（折线图）/ pie（饼图）之一；xField、yField 为字段名字符串，data 为对象数组且对象键名必须与 xField、yField 完全一致；可选 title（字符串标题）、height（数字高度）。图表数据只能来自工具返回的真实数据，禁止编造。\n\n可用技能（当用户任务与技能描述匹配时，先调用 use_skill 读取步骤）：\n- expense-report：汇总用户的报销申请数据并进行金额统计\n- new-employee-onboarding：协助管理员办理新员工入职，创建入职待办清单并核对部门信息\n- weekly-report：汇总用户本周的待办与审批数据，生成结构化周报"
+        },
+        {
+          "role": "user",
+          "content": "公司都有哪些员工？"
+        }
+      ],
+      "assistantText": "",
+      "toolCalls": [
+        {
+          "id": "call_c7ac38109bb84b348fe04867",
+          "name": "list_employees",
+          "arguments": {
+            "pageSize": 100
+          }
+        }
+      ],
+      "toolResults": [
+        {
+          "name": "list_employees",
+          "ok": true,
+          "result": {
+            "list": [
+              {
+                "id": "E001",
+                "userNo": "admin",
+                "name": "陈昊",
+                "departmentId": "D001",
+                "title": "技术总监",
+                "phone": "13800000001",
+                "email": "admin@oa.local",
+                "role": "ADMIN",
+                "password": null,
+                "departmentName": "技术部"
+              },
+              {
+                "id": "E003",
+                "userNo": "lina",
+                "name": "李娜",
+                "departmentId": "D003",
+                "title": "人事专员",
+                "phone": "13800000003",
+                "email": "lina@oa.local",
+                "role": "EMPLOYEE",
+                "password": null,
+                "departmentName": "人事部"
+              },
+              {
+                "id": "E004",
+                "userNo": "wangfang",
+                "name": "王芳",
+                "departmentId": "D004",
+                "title": "财务主管",
+                "phone": "13800000004",
+                "email": "wangfang@oa.local",
+                "role": "ADMIN",
+                "password": null,
+                "departmentName": "财务部"
+              },
+              {
+                "id": "E002",
+                "userNo": "zhangwei",
+                "name": "张伟",
+                "departmentId": "D002",
+                "title": "产品经理",
+                "phone": "13800000002",
+                "email": "zhangwei@oa.local",
+                "role": "EMPLOYEE",
+                "password": null,
+                "departmentName": "产品部"
+              }
+            ],
+            "total": 4,
+            "page": 1,
+            "pageSize": 100
+          }
+        }
+      ],
+      "logs": [
+        {
+          "title": "第 1 步：模型回复（流式）",
+          "detail": "模型决定调用 1 个工具"
+        },
+        {
+          "title": "第 1 步：决策工具 list_employees",
+          "detail": "只读操作，直接执行"
+        },
+        {
+          "title": "第 1 步：工具返回 list_employees",
+          "detail": "执行成功"
+        },
+        {
+          "title": "第 2 步：模型思考",
+          "detail": "调用大模型，携带 OA 工具定义"
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "inputMessages": [
+        {
+          "role": "system",
+          "content": "[system 提示词已折叠，共 1029 字]"
+        },
+        {
+          "role": "user",
+          "content": "公司都有哪些员工？"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_c7ac38109bb84b348fe04867",
+              "name": "list_employees",
+              "arguments": {
+                "pageSize": 100
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_c7ac38109bb84b348fe04867",
+          "content": "{\"list\":[{\"id\":\"E001\",\"userNo\":\"admin\",\"name\":\"陈昊\",\"departmentId\":\"D001\",\"title\":\"技术总监\",\"phone\":\"13800000001\",\"email\":\"admin@oa.local\",\"role\":\"ADMIN\",\"password\":null,\"departmentName\":\"技术部\"},{\"id\":\"E003\",\"userNo\":\"lina\",\"name\":\"李娜\",\"departmentId\":\"D003\",\"title\":\"人事专员\",\"phone\":\"13800000003\",\"email\":\"lina@oa.local\",\"role\":\"EMPLOYEE\",\"password\":null,\"departmentName\":\"人事部\"},{\"id\":\"E004\",\"userNo\":\"wangfang\",\"name\":\"王芳\",\"departmentId\":\"D004\",\"title\":\"财务主管\",\"phone\":\"13800000004\",\"email\":\"wangfang@oa.local\",\"role\":\"ADMIN\",\"password\":null,\"departmentName\":\"财务部\"},{\"id\":\"E002\",\"userNo\":\"zhangwei\",\"name\":\"张伟\",\"departmentId\":\"D002\",\"title\":\"产品经理\",\"phone\":\"13800000002\",\"email\":\"zhangwei@oa.local\",\"role\":\"EMPLOYEE\",\"password\":null,\"departmentName\":\"产品部\"}],\"total\":4,\"page\":1,\"pageSize\":100}"
+        }
+      ],
+      "assistantText": "公司共有 **4 名员工**：\n\n| 员工ID | 姓名 | 部门 | 职位 | 手机 | 邮箱 | 角色 |\n|---|---|---|---|---|---|---|\n| E001 | 陈昊 | 技术部 | 技术总监 | 13800000001 | admin@oa.local | 管理员 |\n| E002 | 张伟 | 产品部 | 产品经理 | 13800000002 | zhangwei@oa.local | 普通员工 |\n| E003 | 李娜 | 人事部 | 人事专员 | 13800000003 | lina@oa.local | 普通员工 |\n| E004 | 王芳 | 财务部 | 财务主管 | 13800000004 | wangfang@oa.local | 管理员 |\n\n```chart\n{\"type\":\"pie\",\"xField\":\"部门\",\"yField\":\"人数\",\"title\":\"各部门人数分布\",\"data\":[{\"部门\":\"技术部\",\"人数\":1},{\"部门\":\"产品部\",\"人数\":1},{\"部门\":\"人事部\",\"人数\":1},{\"部门\":\"财务部\",\"人数\":1}]}\n```\n\n需要查看某位员工的详细信息，或按部门筛选名单吗？",
+      "toolCalls": [],
+      "toolResults": [],
+      "logs": [
+        {
+          "title": "第 2 步：模型回复（流式）",
+          "detail": "模型给出纯文本回答"
+        }
+      ]
+    }
+  ],
+  "finalHistory": [
+    {
+      "role": "user",
+      "content": "公司都有哪些员工？"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "call_c7ac38109bb84b348fe04867",
+          "name": "list_employees",
+          "arguments": {
+            "pageSize": 100
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_c7ac38109bb84b348fe04867",
+      "content": "{\"list\":[{\"id\":\"E001\",\"userNo\":\"admin\",\"name\":\"陈昊\",\"departmentId\":\"D001\",\"title\":\"技术总监\",\"phone\":\"13800000001\",\"email\":\"admin@oa.local\",\"role\":\"ADMIN\",\"password\":null,\"departmentName\":\"技术部\"},{\"id\":\"E003\",\"userNo\":\"lina\",\"name\":\"李娜\",\"departmentId\":\"D003\",\"title\":\"人事专员\",\"phone\":\"13800000003\",\"email\":\"lina@oa.local\",\"role\":\"EMPLOYEE\",\"password\":null,\"departmentName\":\"人事部\"},{\"id\":\"E004\",\"userNo\":\"wangfang\",\"name\":\"王芳\",\"departmentId\":\"D004\",\"title\":\"财务主管\",\"phone\":\"13800000004\",\"email\":\"wangfang@oa.local\",\"role\":\"ADMIN\",\"password\":null,\"departmentName\":\"财务部\"},{\"id\":\"E002\",\"userNo\":\"zhangwei\",\"name\":\"张伟\",\"departmentId\":\"D002\",\"title\":\"产品经理\",\"phone\":\"13800000002\",\"email\":\"zhangwei@oa.local\",\"role\":\"EMPLOYEE\",\"password\":null,\"departmentName\":\"产品部\"}],\"total\":4,\"page\":1,\"pageSize\":100}"
+    },
+    {
+      "role": "assistant",
+      "content": "公司共有 **4 名员工**：\n\n| 员工ID | 姓名 | 部门 | 职位 | 手机 | 邮箱 | 角色 |\n|---|---|---|---|---|---|---|\n| E001 | 陈昊 | 技术部 | 技术总监 | 13800000001 | admin@oa.local | 管理员 |\n| E002 | 张伟 | 产品部 | 产品经理 | 13800000002 | zhangwei@oa.local | 普通员工 |\n| E003 | 李娜 | 人事部 | 人事专员 | 13800000003 | lina@oa.local | 普通员工 |\n| E004 | 王芳 | 财务部 | 财务主管 | 13800000004 | wangfang@oa.local | 管理员 |\n\n```chart\n{\"type\":\"pie\",\"xField\":\"部门\",\"yField\":\"人数\",\"title\":\"各部门人数分布\",\"data\":[{\"部门\":\"技术部\",\"人数\":1},{\"部门\":\"产品部\",\"人数\":1},{\"部门\":\"人事部\",\"人数\":1},{\"部门\":\"财务部\",\"人数\":1}]}\n```\n\n需要查看某位员工的详细信息，或按部门筛选名单吗？"
+    }
+  ],
+  "recordedAt": "2026-11-10T08:12:42.177Z"
+}

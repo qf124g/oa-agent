@@ -1,5 +1,6 @@
 import { config } from '../config';
 import { getSkill, runSkillScript } from '../skills';
+import { buildErrorFeedback, buildTransientError, buildMalformedResponseError } from './error-feedback';
 import { searchKnowledge, invalidateIndex } from '../rag/knowledge-sync';
 import { rewriteQueryForSearch, splitMultiIntentQuery } from '../rag/query-rewrite';
 import type { SearchHit } from '../rag/vector-index';
@@ -80,7 +81,7 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
   if (name === 'search_knowledge') {
     const query = String(args.query ?? '').trim();
     if (!query) {
-      return { ok: false, result: { error: '检索问题不能为空' } };
+      return { ok: false, result: { error: 'MISSING_PARAM', tool: name, field: 'query', hint: '检索问题不能为空，请传入具体的检索关键词' } };
     }
     try {
       const rewritten = await rewriteQueryForSearch(query, ctx.history);
@@ -111,9 +112,11 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
   // 加载技能步骤（本地只读）
   if (name === 'use_skill') {
     const skillId = String(args.skillId ?? '').trim();
-    if (!skillId) return { ok: false, result: { error: '技能 ID 不能为空' } };
+    if (!skillId) return { ok: false, result: { error: 'MISSING_PARAM', tool: name, field: 'skillId', hint: '技能 ID 不能为空' } };
     const skill = getSkill(skillId);
-    if (!skill) return { ok: false, result: { error: `未找到技能: ${skillId}` } };
+    if (!skill) {
+      return { ok: false, result: { error: 'NOT_FOUND', tool: name, field: 'skillId', received: skillId, hint: `未找到技能 ${skillId}。可用技能见系统提示中的技能概览，请勿猜测技能 ID` } };
+    }
     return { ok: true, result: { id: skill.id, name: skill.name, description: skill.description, steps: skill.body } };
   }
 
@@ -128,7 +131,7 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
 
   const route = TOOL_ROUTES[name];
   if (!route) {
-    return { ok: false, result: { error: `未知工具: ${name}` } };
+    return { ok: false, result: { error: 'UNKNOWN_TOOL', tool: name, hint: `工具 ${name} 不存在，请从工具定义列表中选择正确的工具名` } };
   }
 
   try {
@@ -146,10 +149,11 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
     });
     const json = (await res.json().catch(() => null)) as { code: number; message: string; data: unknown } | null;
     if (!json) {
-      return { ok: false, result: { error: `平台接口返回异常（HTTP ${res.status}）` } };
+      return { ok: false, result: buildMalformedResponseError(name, res.status) };
     }
     if (json.code !== 0) {
-      return { ok: false, result: { error: json.message || '平台接口返回错误' } };
+      // L0：把面向人的错误文案转成结构化修复指令回注给模型，打破同参重试循环
+      return { ok: false, result: buildErrorFeedback(name, args, json.message || '平台接口返回错误') };
     }
     // 知识库写操作命中后，使向量索引失效，下次检索前重新同步
     if (name === 'add_knowledge_document' || name === 'delete_knowledge_document') {
@@ -157,7 +161,8 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
     }
     return { ok: true, result: json.data };
   } catch (err) {
-    return { ok: false, result: { error: `工具执行失败: ${err instanceof Error ? err.message : String(err)}` } };
+    // 网络/超时等瞬时故障：明确告知模型这是故障而非参数问题，禁止其原样重试
+    return { ok: false, result: buildTransientError(name, err) };
   }
 }
 
