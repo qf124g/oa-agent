@@ -18,6 +18,8 @@ export interface ToolContext {
 export interface ToolExecution {
   ok: boolean;
   result: unknown;
+  // 写工具首次请求超时后按同一幂等键重试成功时标记，供上层向用户提示「已自动重试」
+  retried?: boolean;
 }
 
 // 拼接查询串：仅保留允许的参数键且值有效
@@ -75,6 +77,25 @@ function mergeHits(groups: SearchHit[][], limit: number): SearchHit[] {
   }
   merged.sort((a, b) => b.score - a.score);
   return merged.slice(0, limit);
+}
+
+// 对账查询：写工具重试耗尽后，用同一幂等键查后端是否已写入。
+// 命中返回首次执行结果（视为成功）；未命中或查询失败返回 undefined（上层再报服务不可用）。
+async function reconcileByIdempotencyKey(key: string, token: string): Promise<unknown | undefined> {
+  try {
+    const res = await fetch(`${config.platformApiBase}/api/idempotency/${encodeURIComponent(key)}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    const json = (await res.json().catch(() => null)) as { code: number; data: { found: boolean; result: unknown } } | null;
+    if (json && json.code === 0 && json.data?.found) {
+      return json.data.result;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // 执行工具：调用平台后端 API 并解析统一响应结构；知识库写操作后同步失效向量索引
@@ -170,14 +191,25 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
       if (name === 'add_knowledge_document' || name === 'delete_knowledge_document') {
         invalidateIndex();
       }
-      return { ok: true, result: json.data };
+      return { ok: true, result: json.data, retried: attempt > 0 };
     } catch (err) {
       // 拿到真实 HTTP 响应后的业务/解析失败已在上方 return，走到这里仅可能是 fetch 抛出的网络/超时故障
+      const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
       const isLast = attempt === maxAttempts - 1;
       if (isLast) {
+        // 重试耗尽后对账：后端可能已写成功只是响应丢失，用同一幂等键取回结果，避免误报失败
+        if (isWrite && ctx.idempotencyKey) {
+          const reconciled = await reconcileByIdempotencyKey(ctx.idempotencyKey, ctx.token);
+          if (reconciled !== undefined) {
+            console.log(`[executor] ${name} 重试耗尽后按幂等键对账命中，取回已写入结果`);
+            return { ok: true, result: reconciled, retried: true };
+          }
+        }
+        console.log(`[executor] ${name} 第 ${attempt + 1} 次调用失败（${reason}），已达重试上限且对账未命中，返回 SERVICE_UNAVAILABLE`);
         return { ok: false, result: buildTransientError(name, err) };
       }
       // 非最后一次：短暂退避后按同一幂等键重试（幂等保证安全）
+      console.log(`[executor] ${name} 第 ${attempt + 1} 次调用失败（${reason}），${300 * (attempt + 1)}ms 后以同一 Idempotency-Key 重试`);
       await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
     }
   }

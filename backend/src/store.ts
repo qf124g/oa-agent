@@ -190,6 +190,15 @@ export class Store {
     return tx(key);
   }
 
+  // 对账查询：按幂等键取回首次执行结果；key 不存在返回 undefined。
+  // 供 agent 写工具重试耗尽后确认「这笔写是否已落库」，避免「已写成功却报失败」的脑裂。
+  getIdempotentResult(key: string): unknown | undefined {
+    const row = this.db.prepare(`SELECT result FROM idempotency WHERE key = ?`).get(key) as
+      | { result: string }
+      | undefined;
+    return row ? JSON.parse(row.result) : undefined;
+  }
+
   // 将 idSeq 提升到当前所有实体最大编号之上，避免 nextId 与外部注入的固定 id（如知识库 seed）冲突
   syncIdSeq(): void {
     const max = this.maxExistingNumber();

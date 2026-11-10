@@ -192,7 +192,7 @@ async function executeToolSafely(
   args: Record<string, unknown>,
   signal: AbortSignal,
   idempotencyKey?: string
-): Promise<{ ok: boolean; result: unknown; aborted: boolean }> {
+): Promise<{ ok: boolean; result: unknown; aborted: boolean; retried?: boolean }> {
   if (signal.aborted) {
     return { ok: false, aborted: true, result: { cancelled: true, message: '请求已取消，工具未执行' } };
   }
@@ -202,7 +202,7 @@ async function executeToolSafely(
       history: formatHistoryForRewrite(session.history),
       idempotencyKey,
     });
-    return { ok: r.ok, aborted: false, result: r.result };
+    return { ok: r.ok, aborted: false, result: r.result, retried: r.retried };
   } catch (e) {
     return {
       ok: false,
@@ -223,7 +223,7 @@ async function executeToolAndEmit(
   signal: AbortSignal
 ): Promise<{ ok: boolean; content: string }> {
   emit({ type: 'tool_call', toolCallId, name, arguments: args });
-  const { ok, result, aborted } = await executeToolSafely(session, name, args, signal);
+  const { ok, result, aborted, retried } = await executeToolSafely(session, name, args, signal);
   emit({ type: 'tool_result', toolCallId, name, ok, result });
   emit({
     type: 'log',
@@ -232,6 +232,15 @@ async function executeToolAndEmit(
     detail: aborted ? '已取消，未执行' : ok ? '执行成功' : '执行失败',
     data: result,
   });
+  // 写工具首次请求超时后按同一幂等键重试成功：向用户提示，避免误判为失败
+  if (retried && ok) {
+    emit({
+      type: 'log',
+      step,
+      title: '检测到服务响应超时，已自动重试',
+      detail: `${name} 首次请求超时，已按同一幂等键重试并成功，未重复写入`,
+    });
+  }
   // 取消导致的未执行不算工具失败，不登记签名，避免误导模型
   if (!aborted) {
     if (!ok) recordFailure(session, name, args);
@@ -662,6 +671,7 @@ async function resumeAfterConfirmationInner(opts: {
   let result: unknown;
   let ok = approved;
   let aborted = false;
+  let retried = false;
   if (approved) {
     // [修复] 走带兜底的执行封装，异常/取消不会让 pendingBatch 残留
     // confirmId 作为幂等键：超时重试时后端按同一 key 去重，保证该次写只落库一次
@@ -669,6 +679,7 @@ async function resumeAfterConfirmationInner(opts: {
     ok = executed.ok;
     result = executed.result;
     aborted = executed.aborted;
+    retried = executed.retried ?? false;
     if (!aborted) {
       // 确认执行的写操作失败也登记签名：模型若原样重试将被短路，不再重复弹确认框
       if (!ok) recordFailure(session, pending.toolName, pending.args);
@@ -685,6 +696,16 @@ async function resumeAfterConfirmationInner(opts: {
     detail: aborted ? '已取消，未执行' : approved ? (ok ? '执行成功' : '执行失败') : '已取消，未执行',
     data: result,
   });
+
+  // 写工具首次请求超时后按同一幂等键重试成功：向用户提示，避免误判为失败
+  if (retried && ok) {
+    emit({
+      type: 'log',
+      step,
+      title: '检测到服务响应超时，已自动重试',
+      detail: `${pending.toolName} 首次请求超时，已按同一幂等键重试并成功，未重复写入`,
+    });
+  }
 
   // 缓存该写工具结果，待本轮全部写操作确认后按原始顺序回填
   batch.results[pending.toolCallId] = stringifyToolResult(result);

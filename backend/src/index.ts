@@ -105,6 +105,15 @@ app.get('/api/auth/me', (req, res) => {
   res.json(ok(userInfo(emp)));
 });
 
+// ---------- 幂等对账 ----------
+
+// 对账查询：agent 写工具重试耗尽后，用同一幂等键确认「这笔写是否已落库」。
+// 命中返回首次执行结果（found=true），未命中返回 found=false。
+app.get('/api/idempotency/:key', (req, res) => {
+  const result = store.getIdempotentResult(req.params.key);
+  res.json(ok({ found: result !== undefined, result: result ?? null }));
+});
+
 // ---------- 待办 ----------
 
 app.get('/api/todos', (req, res) => {
@@ -160,15 +169,32 @@ app.post('/api/todos', (req, res) => {
     store.todos.set(t.id, t);
     return t;
   });
-  res.json(ok(result));
-  // 领域事件：仅在首次执行时触发，幂等回放不重复推送
-  if (!replayed) {
-    emitDomainEvent({
-      type: 'todo.created',
-      actorId: user.userId,
-      source: req.headers['x-source'] === 'agent' ? 'agent' : 'web',
-      data: { id: result.id, title: result.title, priority: result.priority, dueDate: result.dueDate },
-    });
+  // 调试用：设置环境变量 SLOW_WRITE_MS（毫秒，需大于客户端 10s 超时，如 12000）后，
+  // 首次真实写入（非幂等回放）在落库完成后延迟响应，制造「超时但已写成功」场景；
+  // 客户端超时后按同一 Idempotency-Key 重试，命中缓存直接返回，不重复落库。
+  const slowMs = Number(process.env.SLOW_WRITE_MS);
+  const respond = () => {
+    res.json(ok(result));
+    // 领域事件：仅在首次执行时触发，幂等回放不重复推送
+    if (!replayed) {
+      emitDomainEvent({
+        type: 'todo.created',
+        actorId: user.userId,
+        source: req.headers['x-source'] === 'agent' ? 'agent' : 'web',
+        data: { id: result.id, title: result.title, priority: result.priority, dueDate: result.dueDate },
+      });
+    }
+  };
+  if (!replayed && Number.isFinite(slowMs) && slowMs > 0) {
+    // 首次真实写入：落库已完成，这里延迟响应，客户端 10s 超时后会用同一 key 重试
+    console.log(`[backend] create_todo 首次写入已落库（id=${result.id}），延迟 ${slowMs}ms 响应以制造客户端超时`);
+    setTimeout(respond, slowMs);
+  } else {
+    // 重试命中缓存：直接回放首次结果，不再重复落库
+    if (replayed) {
+      console.log(`[backend] create_todo 命中幂等缓存，回放首次结果（id=${result.id}），不重复落库`);
+    }
+    respond();
   }
 });
 
