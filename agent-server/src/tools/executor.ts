@@ -10,6 +10,8 @@ export interface ToolContext {
   token: string;
   // 对话历史文本（用于 search_knowledge 检索前的 query 改写）
   history: string;
+  // 幂等键：写工具透传，后端按此去重（超时重试时保证同一逻辑写只落库一次）
+  idempotencyKey?: string;
 }
 
 // 工具执行结果
@@ -134,36 +136,53 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
     return { ok: false, result: { error: 'UNKNOWN_TOOL', tool: name, hint: `工具 ${name} 不存在，请从工具定义列表中选择正确的工具名` } };
   }
 
-  try {
-    const { method, path, body } = route(args);
-    const res = await fetch(config.platformApiBase + path, {
-      method,
-      headers: {
+  const { method, path, body } = route(args);
+  const isWrite = method !== 'GET';
+  // 写工具带幂等键时：超时/网络故障后按同一 key 有限重试，后端按 key 去重，重试不会重复落库
+  const maxAttempts = isWrite && ctx.idempotencyKey ? 3 : 1;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${ctx.token}`,
         // 标记来源为助手代办：后端领域事件据此避免「助手代办 → 又回推助手」的自循环
         'X-Source': 'agent',
-      },
-      body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
-      signal: AbortSignal.timeout(10000),
-    });
-    const json = (await res.json().catch(() => null)) as { code: number; message: string; data: unknown } | null;
-    if (!json) {
-      return { ok: false, result: buildMalformedResponseError(name, res.status) };
+      };
+      // 写请求透传幂等键：后端以 key 为主键缓存首次执行结果，重试命中则直接返回
+      if (isWrite && ctx.idempotencyKey) headers['Idempotency-Key'] = ctx.idempotencyKey;
+
+      const res = await fetch(config.platformApiBase + path, {
+        method,
+        headers,
+        body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
+        signal: AbortSignal.timeout(10000),
+      });
+      const json = (await res.json().catch(() => null)) as { code: number; message: string; data: unknown } | null;
+      if (!json) {
+        return { ok: false, result: buildMalformedResponseError(name, res.status) };
+      }
+      if (json.code !== 0) {
+        // L0：把面向人的错误文案转成结构化修复指令回注给模型，打破同参重试循环
+        return { ok: false, result: buildErrorFeedback(name, args, json.message || '平台接口返回错误') };
+      }
+      // 知识库写操作命中后，使向量索引失效，下次检索前重新同步
+      if (name === 'add_knowledge_document' || name === 'delete_knowledge_document') {
+        invalidateIndex();
+      }
+      return { ok: true, result: json.data };
+    } catch (err) {
+      // 拿到真实 HTTP 响应后的业务/解析失败已在上方 return，走到这里仅可能是 fetch 抛出的网络/超时故障
+      const isLast = attempt === maxAttempts - 1;
+      if (isLast) {
+        return { ok: false, result: buildTransientError(name, err) };
+      }
+      // 非最后一次：短暂退避后按同一幂等键重试（幂等保证安全）
+      await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
     }
-    if (json.code !== 0) {
-      // L0：把面向人的错误文案转成结构化修复指令回注给模型，打破同参重试循环
-      return { ok: false, result: buildErrorFeedback(name, args, json.message || '平台接口返回错误') };
-    }
-    // 知识库写操作命中后，使向量索引失效，下次检索前重新同步
-    if (name === 'add_knowledge_document' || name === 'delete_knowledge_document') {
-      invalidateIndex();
-    }
-    return { ok: true, result: json.data };
-  } catch (err) {
-    // 网络/超时等瞬时故障：明确告知模型这是故障而非参数问题，禁止其原样重试
-    return { ok: false, result: buildTransientError(name, err) };
   }
+  // 理论不可达：循环内必 return，此处兜底
+  return { ok: false, result: buildTransientError(name, new Error('unreachable')) };
 }
 
 // 工具结果序列化为字符串供回传大模型，超长时截断防止上下文膨胀

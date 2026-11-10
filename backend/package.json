@@ -9,6 +9,8 @@
     "gen:seed": "node scripts/gen-seed-pdf.mjs"
   },
   "dependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "better-sqlite3": "^11.9.1",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "mammoth": "^1.12.3",

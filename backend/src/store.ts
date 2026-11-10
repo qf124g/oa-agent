@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import Database from 'better-sqlite3';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { plusDays } from './common';
@@ -19,12 +20,27 @@ import type {
   WorkflowNode,
 } from './types';
 
-// 磁盘快照路径：backend/data/store.json（相对源码目录上跳一级）
+// 数据目录：backend/data（相对源码目录上跳一级）
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_FILE = join(__dirname, '..', 'data', 'store.json');
+const DATA_DIR = join(__dirname, '..', 'data');
+// SQLite 数据库文件；旧版 JSON 快照仅用于首次迁移
+const DB_FILE = join(DATA_DIR, 'store.db');
+const LEGACY_FILE = join(DATA_DIR, 'store.json');
 
-// 磁盘快照结构：Map -> 对象映射（key 为实体 id）
-interface SnapshotData {
+// 实体表清单：每个表以 id 为主键、data 列存整条实体的 JSON 文本
+const TABLES = [
+  'departments',
+  'employees',
+  'todos',
+  'approvals',
+  'announcements',
+  'knowledge_docs',
+  'workflows',
+] as const;
+type TableName = (typeof TABLES)[number];
+
+// 旧 JSON 快照结构（仅迁移时读取）
+interface LegacySnapshot {
   idSeq: number;
   departments: Record<string, Department>;
   employees: Record<string, Employee>;
@@ -35,135 +51,180 @@ interface SnapshotData {
   workflows: Record<string, WorkflowDefinition>;
 }
 
-// 变更后自动落盘的 Map 封装
-class PersistentMap<K, V> extends Map<K, V> {
-  private onMutate: (() => void) | null = null;
-
-  arm(fn: () => void): void {
-    this.onMutate = fn;
-  }
-
-  override set(key: K, value: V): this {
-    super.set(key, value);
-    this.onMutate?.();
-    return this;
-  }
-
-  override delete(key: K): boolean {
-    const removed = super.delete(key);
-    if (removed) this.onMutate?.();
-    return removed;
-  }
-
-  override clear(): void {
-    super.clear();
-    this.onMutate?.();
-  }
-}
-
-// 提取 id 末尾的数字部分，如 "E004" -> 4
+// 提取 id 末尾数字，如 "E004" -> 4
 function numericSuffix(id: string): number {
   const match = /\d+$/.exec(id);
   return match ? Number(match[0]) : 0;
 }
 
-// 内存数据存储：各实体 Map + 种子数据 + id 生成
-export class InMemoryStore {
-  departments = new PersistentMap<string, Department>();
-  employees = new PersistentMap<string, Employee>();
-  todos = new PersistentMap<string, TodoTask>();
-  approvals = new PersistentMap<string, ApprovalRequest>();
-  announcements = new PersistentMap<string, Announcement>();
-  knowledgeDocs = new PersistentMap<string, KnowledgeDocument>();
-  workflows = new PersistentMap<string, WorkflowDefinition>();
+// 幂等执行结果：result 为业务返回体；replayed 表示本次是否为「命中缓存的回放」
+export interface IdempotentOutcome<T> {
+  result: T;
+  replayed: boolean;
+}
 
-  private idSeq = 0;
+// 实体集合：对业务层暴露 Map 风格接口，底层走 SQLite 单表（id + JSON）
+class Collection<V extends { id: string }> {
+  private getStmt: Database.Statement;
+  private setStmt: Database.Statement;
+  private delStmt: Database.Statement;
+  private allStmt: Database.Statement;
+  private countStmt: Database.Statement;
 
-  constructor() {
-    const restored = this.load();
-    if (!restored) {
-      this.initSeedData();
-      // 让自增 id 从现有种子数据最大编号之后开始，避免新建记录覆盖已有数据
-      this.idSeq = this.maxExistingNumber();
-    }
-    this.arm();
-    if (!restored) this.persist();
+  constructor(db: Database.Database, table: TableName) {
+    this.getStmt = db.prepare(`SELECT data FROM "${table}" WHERE id = ?`);
+    this.setStmt = db.prepare(
+      `INSERT INTO "${table}" (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`
+    );
+    this.delStmt = db.prepare(`DELETE FROM "${table}" WHERE id = ?`);
+    this.allStmt = db.prepare(`SELECT data FROM "${table}"`);
+    this.countStmt = db.prepare(`SELECT COUNT(*) AS c FROM "${table}"`);
   }
 
-  // 生成带前缀的自增 id，如 T005
+  get(id: string): V | undefined {
+    const row = this.getStmt.get(id) as { data: string } | undefined;
+    return row ? (JSON.parse(row.data) as V) : undefined;
+  }
+
+  set(id: string, value: V): void {
+    this.setStmt.run(id, JSON.stringify(value));
+  }
+
+  delete(id: string): boolean {
+    return this.delStmt.run(id).changes > 0;
+  }
+
+  has(id: string): boolean {
+    return this.getStmt.get(id) !== undefined;
+  }
+
+  values(): V[] {
+    return (this.allStmt.all() as { data: string }[]).map((r) => JSON.parse(r.data) as V);
+  }
+
+  get size(): number {
+    return (this.countStmt.get() as { c: number }).c;
+  }
+}
+
+// SQLite 数据存储：替代原「内存 Map + JSON 文件」实现，业务数据与幂等记录同库同事务
+export class Store {
+  private db: Database.Database;
+
+  departments: Collection<Department>;
+  employees: Collection<Employee>;
+  todos: Collection<TodoTask>;
+  approvals: Collection<ApprovalRequest>;
+  announcements: Collection<Announcement>;
+  knowledgeDocs: Collection<KnowledgeDocument>;
+  workflows: Collection<WorkflowDefinition>;
+
+  constructor() {
+    mkdirSync(DATA_DIR, { recursive: true });
+    const fresh = !existsSync(DB_FILE);
+    this.db = new Database(DB_FILE);
+    this.db.pragma('journal_mode = WAL');
+    this.initSchema();
+
+    this.departments = new Collection<Department>(this.db, 'departments');
+    this.employees = new Collection<Employee>(this.db, 'employees');
+    this.todos = new Collection<TodoTask>(this.db, 'todos');
+    this.approvals = new Collection<ApprovalRequest>(this.db, 'approvals');
+    this.announcements = new Collection<Announcement>(this.db, 'announcements');
+    this.knowledgeDocs = new Collection<KnowledgeDocument>(this.db, 'knowledge_docs');
+    this.workflows = new Collection<WorkflowDefinition>(this.db, 'workflows');
+
+    if (fresh) {
+      if (!this.migrateFromLegacy()) {
+        this.seed();
+      }
+      this.syncIdSeq();
+    }
+  }
+
+  // 建表：实体表 + 自增序列 + 幂等记录表
+  private initSchema(): void {
+    for (const t of TABLES) {
+      this.db.exec(`CREATE TABLE IF NOT EXISTS "${t}" (id TEXT PRIMARY KEY, data TEXT NOT NULL)`);
+    }
+    this.db.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS idempotency (
+        key TEXT PRIMARY KEY,
+        result TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`
+    );
+    // 自增序列初始值
+    this.db
+      .prepare(`INSERT INTO meta (key, value) VALUES ('id_seq', '0') ON CONFLICT(key) DO NOTHING`)
+      .run();
+  }
+
+  // 生成带前缀的自增 id，如 T005；单条原子 UPDATE，可安全地在幂等事务内调用
   nextId(prefix: string): string {
-    this.idSeq += 1;
-    return prefix + String(this.idSeq).padStart(3, '0');
+    const row = this.db
+      .prepare(`UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'id_seq' RETURNING value`)
+      .get() as { value: string } | undefined;
+    const seq = Number(row?.value ?? 1);
+    return prefix + String(seq).padStart(3, '0');
+  }
+
+  // 幂等执行：key 存在则返回缓存结果（replayed=true），否则执行 write 并缓存其结果。
+  // write 抛错时事务回滚，不会写入幂等记录，异常向上传播。
+  runIdempotent<T>(key: string | undefined, write: () => T): IdempotentOutcome<T> {
+    if (!key) return { result: write(), replayed: false };
+    const tx = this.db.transaction((k: string): IdempotentOutcome<T> => {
+      const existing = this.db.prepare(`SELECT result FROM idempotency WHERE key = ?`).get(k) as
+        | { result: string }
+        | undefined;
+      if (existing) return { result: JSON.parse(existing.result) as T, replayed: true };
+      const result = write();
+      const now = Date.now();
+      this.db
+        .prepare(`INSERT INTO idempotency (key, result, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+        .run(k, JSON.stringify(result), now, now);
+      return { result, replayed: false };
+    });
+    return tx(key);
+  }
+
+  // 将 idSeq 提升到当前所有实体最大编号之上，避免 nextId 与外部注入的固定 id（如知识库 seed）冲突
+  syncIdSeq(): void {
+    const max = this.maxExistingNumber();
+    this.db.prepare(`UPDATE meta SET value = ? WHERE key = 'id_seq'`).run(String(max));
   }
 
   private maxExistingNumber(): number {
-    const allIds = [
-      ...this.departments.keys(),
-      ...this.employees.keys(),
-      ...this.todos.keys(),
-      ...this.approvals.keys(),
-      ...this.announcements.keys(),
-      ...this.knowledgeDocs.keys(),
-      ...this.workflows.keys(),
-    ];
-    return allIds.reduce((max, id) => Math.max(max, numericSuffix(id)), 0);
+    let max = 0;
+    for (const t of TABLES) {
+      const rows = this.db.prepare(`SELECT id FROM "${t}"`).all() as { id: string }[];
+      for (const r of rows) max = Math.max(max, numericSuffix(r.id));
+    }
+    return max;
   }
 
-  // 开启所有 Map 的变更自动落盘
-  private arm(): void {
-    const save = () => this.persist();
-    this.departments.arm(save);
-    this.employees.arm(save);
-    this.todos.arm(save);
-    this.approvals.arm(save);
-    this.announcements.arm(save);
-    this.knowledgeDocs.arm(save);
-    this.workflows.arm(save);
-  }
-
-  // 从磁盘加载快照；文件不存在或损坏时返回 false（走种子初始化）
-  private load(): boolean {
+  // 首次启动时从旧 store.json 迁移数据；文件不存在或损坏返回 false
+  private migrateFromLegacy(): boolean {
     try {
-      const raw = readFileSync(DATA_FILE, 'utf8');
-      const s = JSON.parse(raw) as SnapshotData;
-      this.idSeq = typeof s.idSeq === 'number' ? s.idSeq : 0;
-      this.hydrate(this.departments, s.departments);
-      this.hydrate(this.employees, s.employees);
-      this.hydrate(this.todos, s.todos);
-      this.hydrate(this.approvals, s.approvals);
-      this.hydrate(this.announcements, s.announcements);
-      this.hydrate(this.knowledgeDocs, s.knowledgeDocs);
-      this.hydrate(this.workflows, s.workflows);
+      if (!existsSync(LEGACY_FILE)) return false;
+      const raw = readFileSync(LEGACY_FILE, 'utf8');
+      const s = JSON.parse(raw) as LegacySnapshot;
+      const tx = this.db.transaction(() => {
+        for (const [id, v] of Object.entries(s.departments ?? {})) this.departments.set(id, v);
+        for (const [id, v] of Object.entries(s.employees ?? {})) this.employees.set(id, v);
+        for (const [id, v] of Object.entries(s.todos ?? {})) this.todos.set(id, v);
+        for (const [id, v] of Object.entries(s.approvals ?? {})) this.approvals.set(id, v);
+        for (const [id, v] of Object.entries(s.announcements ?? {})) this.announcements.set(id, v);
+        for (const [id, v] of Object.entries(s.knowledgeDocs ?? {})) this.knowledgeDocs.set(id, v);
+        for (const [id, v] of Object.entries(s.workflows ?? {})) this.workflows.set(id, v);
+      });
+      tx();
       return true;
     } catch {
       return false;
     }
-  }
-
-  // 将对象映射回填进 Map
-  private hydrate<V>(map: PersistentMap<string, V>, obj: Record<string, V> | undefined): void {
-    if (!obj) return;
-    for (const [k, v] of Object.entries(obj)) {
-      map.set(k, v);
-    }
-  }
-
-  // 落盘：先写临时文件再原子重命名，避免中途崩溃损坏快照
-  private persist(): void {
-    const snapshot: SnapshotData = {
-      idSeq: this.idSeq,
-      departments: Object.fromEntries(this.departments),
-      employees: Object.fromEntries(this.employees),
-      todos: Object.fromEntries(this.todos),
-      approvals: Object.fromEntries(this.approvals),
-      announcements: Object.fromEntries(this.announcements),
-      knowledgeDocs: Object.fromEntries(this.knowledgeDocs),
-      workflows: Object.fromEntries(this.workflows),
-    };
-    mkdirSync(dirname(DATA_FILE), { recursive: true });
-    const tmp = `${DATA_FILE}.tmp`;
-    writeFileSync(tmp, JSON.stringify(snapshot, null, 2), 'utf8');
-    renameSync(tmp, DATA_FILE);
   }
 
   // 按员工 id 取姓名
@@ -176,7 +237,7 @@ export class InMemoryStore {
     return this.departments.get(id)?.name ?? '';
   }
 
-  private initSeedData(): void {
+  private seed(): void {
     const now = Date.now();
 
     // 部门
@@ -205,6 +266,7 @@ export class InMemoryStore {
       a3.approverId = 'E001';
       a3.comment = '同意，走固定资产采购流程';
       a3.decidedAt = now;
+      this.approvals.set('A003', a3);
     }
 
     // 公告
@@ -227,11 +289,6 @@ export class InMemoryStore {
       { id: 'e4', from: 'n-cond', to: 'n-end', label: '否' },
       { id: 'e5', from: 'n-hr', to: 'n-end' },
     ]));
-  }
-
-  // 将 idSeq 提升到当前所有实体最大编号之上，避免后续 nextId 与外部注入的固定 id（如知识库 seed）冲突
-  syncIdSeq(): void {
-    this.idSeq = Math.max(this.idSeq, this.maxExistingNumber());
   }
 
   private employee(id: string, userNo: string, name: string, departmentId: string, title: string, phone: string, role: Role): Employee {
@@ -257,5 +314,5 @@ export class InMemoryStore {
   }
 }
 
-// 单例存储，供各处共享同一份内存数据
-export const store = new InMemoryStore();
+// 单例存储，供各处共享同一份数据
+export const store = new Store();

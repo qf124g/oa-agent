@@ -72,6 +72,12 @@ function queryStr(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 
+// 从请求头读取幂等键（agent-server 写工具透传，超时重试时按同一 key 去重）
+function idempotencyKey(req: Request): string | undefined {
+  const v = req.headers['idempotency-key'];
+  return typeof v === 'string' && v ? v : undefined;
+}
+
 app.use(authMiddleware);
 
 // ---------- 认证 ----------
@@ -130,49 +136,58 @@ app.post('/api/todos', (req, res) => {
   if (!title) {
     throw new BusinessError(400, '待办标题不能为空');
   }
-  const ownerId = str(body.ownerId);
-  let priority: TodoPriority = 'MEDIUM';
-  const p = str(body.priority).toUpperCase();
-  if (p === 'HIGH' || p === 'MEDIUM' || p === 'LOW') priority = p;
-  let dueDate = str(body.dueDate);
-  if (!dueDate) dueDate = plusDays(7);
-  const now = Date.now();
-  const t: TodoTask = {
-    id: store.nextId('T'),
-    ownerId: ownerId || user.userId,
-    title,
-    description: str(body.description),
-    priority,
-    status: 'PENDING',
-    dueDate,
-    assignerId: user.userId,
-    createdAt: now,
-    updatedAt: now,
-    ownerName: store.employeeName(ownerId || user.userId),
-  };
-  store.todos.set(t.id, t);
-  res.json(ok(t));
-  // 领域事件：通知助手主动触达创建人（通过助手代办的标记 agent 来源，不回推）
-  emitDomainEvent({
-    type: 'todo.created',
-    actorId: user.userId,
-    source: req.headers['x-source'] === 'agent' ? 'agent' : 'web',
-    data: { id: t.id, title: t.title, priority: t.priority, dueDate: t.dueDate },
+  const { result, replayed } = store.runIdempotent(idempotencyKey(req), () => {
+    const ownerId = str(body.ownerId);
+    let priority: TodoPriority = 'MEDIUM';
+    const p = str(body.priority).toUpperCase();
+    if (p === 'HIGH' || p === 'MEDIUM' || p === 'LOW') priority = p;
+    let dueDate = str(body.dueDate);
+    if (!dueDate) dueDate = plusDays(7);
+    const now = Date.now();
+    const t: TodoTask = {
+      id: store.nextId('T'),
+      ownerId: ownerId || user.userId,
+      title,
+      description: str(body.description),
+      priority,
+      status: 'PENDING',
+      dueDate,
+      assignerId: user.userId,
+      createdAt: now,
+      updatedAt: now,
+      ownerName: store.employeeName(ownerId || user.userId),
+    };
+    store.todos.set(t.id, t);
+    return t;
   });
+  res.json(ok(result));
+  // 领域事件：仅在首次执行时触发，幂等回放不重复推送
+  if (!replayed) {
+    emitDomainEvent({
+      type: 'todo.created',
+      actorId: user.userId,
+      source: req.headers['x-source'] === 'agent' ? 'agent' : 'web',
+      data: { id: result.id, title: result.title, priority: result.priority, dueDate: result.dueDate },
+    });
+  }
 });
 
 app.patch('/api/todos/:id/complete', (req, res) => {
   const user = (req as AuthedRequest).currentUser as AuthUser;
-  const t = store.todos.get(req.params.id);
-  if (!t) {
-    throw new BusinessError(404, '待办不存在');
-  }
-  if (user.role !== 'ADMIN' && t.ownerId !== user.userId) {
-    throw new BusinessError(403, '无权限操作该待办');
-  }
-  t.status = 'DONE';
-  t.updatedAt = Date.now();
-  res.json(ok({ ...t, ownerName: store.employeeName(t.ownerId) }));
+  const { result } = store.runIdempotent(idempotencyKey(req), () => {
+    const t = store.todos.get(req.params.id);
+    if (!t) {
+      throw new BusinessError(404, '待办不存在');
+    }
+    if (user.role !== 'ADMIN' && t.ownerId !== user.userId) {
+      throw new BusinessError(403, '无权限操作该待办');
+    }
+    t.status = 'DONE';
+    t.updatedAt = Date.now();
+    store.todos.set(t.id, t);
+    return { ...t, ownerName: store.employeeName(t.ownerId) };
+  });
+  res.json(ok(result));
 });
 
 // ---------- 审批 ----------
@@ -215,42 +230,57 @@ app.post('/api/approvals', (req, res) => {
   const detail = body.detail && typeof body.detail === 'object' && !Array.isArray(body.detail)
     ? (body.detail as Record<string, unknown>)
     : {};
-  const a: ApprovalRequest = {
-    id: store.nextId('A'),
-    type: typeStr,
-    applicantId: user.userId,
-    title,
-    detail,
-    amount: typeof body.amount === 'number' ? body.amount : null,
-    status: 'PENDING',
-    approverId: null,
-    comment: null,
-    createdAt: Date.now(),
-    decidedAt: 0,
-    applicantName: store.employeeName(user.userId),
-    approverName: null,
-  };
-  store.approvals.set(a.id, a);
-  res.json(ok(a));
-  // 领域事件：新审批发起，通知所有管理员（排除申请人自己，避免自己给自己推一条）
-  const adminIds = [...store.employees.values()]
-    .filter((e) => e.role === 'ADMIN' && e.id !== user.userId)
-    .map((e) => e.id);
-  emitDomainEvent({
-    type: 'approval.submitted',
-    actorId: user.userId,
-    source: req.headers['x-source'] === 'agent' ? 'agent' : 'web',
-    targetUserIds: adminIds,
-    data: { id: a.id, title, type: typeStr, amount: a.amount, applicantName: store.employeeName(user.userId) },
+  const { result, replayed } = store.runIdempotent(idempotencyKey(req), () => {
+    const a: ApprovalRequest = {
+      id: store.nextId('A'),
+      type: typeStr as ApprovalType,
+      applicantId: user.userId,
+      title,
+      detail,
+      amount: typeof body.amount === 'number' ? body.amount : null,
+      status: 'PENDING',
+      approverId: null,
+      comment: null,
+      createdAt: Date.now(),
+      decidedAt: 0,
+      applicantName: store.employeeName(user.userId),
+      approverName: null,
+    };
+    store.approvals.set(a.id, a);
+    return a;
   });
+  res.json(ok(result));
+  // 领域事件：仅在首次执行时触发，幂等回放不重复推送（新审批通知所有管理员，排除申请人自己）
+  if (!replayed) {
+    const adminIds = [...store.employees.values()]
+      .filter((e) => e.role === 'ADMIN' && e.id !== user.userId)
+      .map((e) => e.id);
+    emitDomainEvent({
+      type: 'approval.submitted',
+      actorId: user.userId,
+      source: req.headers['x-source'] === 'agent' ? 'agent' : 'web',
+      targetUserIds: adminIds,
+      data: { id: result.id, title, type: typeStr, amount: result.amount, applicantName: store.employeeName(user.userId) },
+    });
+  }
 });
 
 app.post('/api/approvals/:id/approve', requireRole('ADMIN'), (req, res) => {
-  res.json(ok(decide(req as AuthedRequest, req.params.id, str(req.body?.comment), true)));
+  const comment = str(req.body?.comment);
+  const { result, replayed } = store.runIdempotent(idempotencyKey(req), () =>
+    decide(req as AuthedRequest, req.params.id, comment, true)
+  );
+  res.json(ok(result));
+  if (!replayed) emitDecisionEvent(req, result, comment);
 });
 
 app.post('/api/approvals/:id/reject', requireRole('ADMIN'), (req, res) => {
-  res.json(ok(decide(req as AuthedRequest, req.params.id, str(req.body?.comment), false)));
+  const comment = str(req.body?.comment);
+  const { result, replayed } = store.runIdempotent(idempotencyKey(req), () =>
+    decide(req as AuthedRequest, req.params.id, comment, false)
+  );
+  res.json(ok(result));
+  if (!replayed) emitDecisionEvent(req, result, comment);
 });
 
 // ---------- 公告 ----------
@@ -279,17 +309,20 @@ app.post('/api/announcements', requireRole('ADMIN'), (req, res) => {
   if (!title) {
     throw new BusinessError(400, '公告标题不能为空');
   }
-  const n = {
-    id: store.nextId('N'),
-    title,
-    content: str(body.content),
-    authorId: user.userId,
-    pinned: body.pinned === true,
-    publishedAt: Date.now(),
-    authorName: store.employeeName(user.userId),
-  };
-  store.announcements.set(n.id, n);
-  res.json(ok(n));
+  const { result } = store.runIdempotent(idempotencyKey(req), () => {
+    const n = {
+      id: store.nextId('N'),
+      title,
+      content: str(body.content),
+      authorId: user.userId,
+      pinned: body.pinned === true,
+      publishedAt: Date.now(),
+      authorName: store.employeeName(user.userId),
+    };
+    store.announcements.set(n.id, n);
+    return n;
+  });
+  res.json(ok(result));
 });
 
 // ---------- 部门 ----------
@@ -393,6 +426,7 @@ app.patch('/api/employees/:id', requireRole('ADMIN'), (req, res) => {
   if (b.email !== undefined) emp.email = String(b.email).trim() || `${userNo}@oa.local`;
   if (b.role !== undefined) emp.role = b.role === 'ADMIN' ? 'ADMIN' : 'EMPLOYEE';
   if (b.password !== undefined && String(b.password).trim() !== '') emp.password = String(b.password);
+  store.employees.set(emp.id, emp);
   res.json(ok(sanitizeEmployee(emp)));
 });
 
@@ -464,28 +498,34 @@ app.post('/api/knowledge', requireRole('ADMIN'), (req, res) => {
   if (!title || !content) {
     throw new BusinessError(400, '标题和内容不能为空');
   }
-  const now = Date.now();
-  const k: KnowledgeDocument = {
-    id: store.nextId('K'),
-    title,
-    content,
-    category: str(body.category) || '未分类',
-    uploadedBy: user.userId,
-    createdAt: now,
-    updatedAt: now,
-    uploadedByName: store.employeeName(user.userId),
-  };
-  store.knowledgeDocs.set(k.id, k);
-  res.json(ok(k));
-  emitKnowledgeEvent(req);
+  const { result, replayed } = store.runIdempotent(idempotencyKey(req), () => {
+    const now = Date.now();
+    const k: KnowledgeDocument = {
+      id: store.nextId('K'),
+      title,
+      content,
+      category: str(body.category) || '未分类',
+      uploadedBy: user.userId,
+      createdAt: now,
+      updatedAt: now,
+      uploadedByName: store.employeeName(user.userId),
+    };
+    store.knowledgeDocs.set(k.id, k);
+    return k;
+  });
+  res.json(ok(result));
+  if (!replayed) emitKnowledgeEvent(req);
 });
 
 app.delete('/api/knowledge/:id', requireRole('ADMIN'), (req, res) => {
-  if (!store.knowledgeDocs.delete(req.params.id)) {
-    throw new BusinessError(404, '文档不存在');
-  }
-  res.json(ok(null));
-  emitKnowledgeEvent(req);
+  const { result, replayed } = store.runIdempotent(idempotencyKey(req), () => {
+    if (!store.knowledgeDocs.delete(req.params.id)) {
+      throw new BusinessError(404, '文档不存在');
+    }
+    return null;
+  });
+  res.json(ok(result));
+  if (!replayed) emitKnowledgeEvent(req);
 });
 
 // 上传文档（管理员）：解析文件正文存入知识库，触发向量实时重建
@@ -577,6 +617,7 @@ app.patch('/api/workflows/:id', requireRole('ADMIN'), (req, res) => {
   if (body.nodes !== undefined) wf.nodes = sanitizeNodes(body.nodes);
   if (body.edges !== undefined) wf.edges = sanitizeEdges(body.edges);
   wf.updatedAt = Date.now();
+  store.workflows.set(wf.id, wf);
   res.json(ok(wf));
 });
 
@@ -646,6 +687,7 @@ function userInfo(emp: Employee) {
   };
 }
 
+// 审批决策：校验并落库（持久化到 SQLite），返回带姓名信息的审批单
 function decide(req: AuthedRequest, id: string, comment: string, approved: boolean): ApprovalRequest {
   const user = req.currentUser as AuthUser;
   if (user.role !== 'ADMIN') {
@@ -662,16 +704,20 @@ function decide(req: AuthedRequest, id: string, comment: string, approved: boole
   a.approverId = user.userId;
   a.comment = comment;
   a.decidedAt = Date.now();
-  const result = fillApprovalNames(a);
-  // 领域事件：审批已有结果，通知申请人
+  store.approvals.set(a.id, a);
+  return fillApprovalNames(a);
+}
+
+// 审批结果领域事件：通知申请人（仅在首次执行时调用，幂等回放不重复推送）
+function emitDecisionEvent(req: Request, approval: ApprovalRequest, comment: string): void {
+  const user = (req as AuthedRequest).currentUser as AuthUser;
   emitDomainEvent({
     type: 'approval.decided',
     actorId: user.userId,
     source: (req.headers['x-source'] as string) === 'agent' ? 'agent' : 'web',
-    targetUserIds: [a.applicantId],
-    data: { id: a.id, title: a.title, type: a.type, status: a.status, comment, approverName: store.employeeName(user.userId) },
+    targetUserIds: [approval.applicantId],
+    data: { id: approval.id, title: approval.title, type: approval.type, status: approval.status, comment, approverName: store.employeeName(user.userId) },
   });
-  return result;
 }
 
 // 审批类型白名单解析，非法值返回 null

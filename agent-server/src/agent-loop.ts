@@ -41,17 +41,261 @@ export interface AgentLoopOptions {
   signal: AbortSignal;
 }
 
-// 核心 Agent 循环：
-// 1. 携带工具定义流式请求大模型
-// 2. 文本增量通过 message_delta 实时下发给前端
-// 3. 模型发起工具调用时，只读工具直接执行（HTTP 调平台后端），写工具被拦截发确认请求
-// 4. 模型给出纯文本回答时结束循环
+// ---------------------------------------------------------------------------
+// [修复] 并发与不变式防护
+//
+// 不变式：history 中任意一条 assistant(tool_calls) 消息，其每个 tool_call_id
+// 都必须能在其后紧邻的位置找到一条 tool 消息，否则下一次模型请求必然 400。
+// 下面这些辅助函数专门保证该不变式在任何异常路径下都不被破坏。
+// ---------------------------------------------------------------------------
+
+// 同一 session 的 resume 串行化，避免并发确认导致「重复回填 + 双重续跑」
+const sessionLocks = new WeakMap<Session, Promise<unknown>>();
+
+// 标记正在执行主循环的 session，避免同一会话并发跑两份 agent 循环
+const runningSessions = new WeakSet<Session>();
+
+// [修复] 写工具成功签名（模块级，与 session 生命周期一致）：
+// 命中时直接回填「已执行过」提示，不再重复弹确认框。
+const succeededSigs = new WeakMap<Session, Set<string>>();
+
+function withSessionLock<T>(session: Session, fn: () => Promise<T>): Promise<T> {
+  const prev = sessionLocks.get(session) ?? Promise.resolve();
+  // 上一个任务无论成功或失败，都继续执行下一个，避免一次异常把锁永久卡死
+  const run = prev.then(fn, fn);
+  sessionLocks.set(session, run.then(() => undefined, () => undefined));
+  return run;
+}
+
+function getSucceededSigs(session: Session): Set<string> {
+  let set = succeededSigs.get(session);
+  if (!set) {
+    set = new Set<string>();
+    succeededSigs.set(session, set);
+  }
+  return set;
+}
+
+function markSucceeded(session: Session, name: string, args: Record<string, unknown>): void {
+  if (!isWriteTool(name)) return;
+  getSucceededSigs(session).add(signatureOf(name, args));
+}
+
+function isAlreadySucceeded(session: Session, name: string, args: Record<string, unknown>): boolean {
+  if (!isWriteTool(name)) return false;
+  return getSucceededSigs(session).has(signatureOf(name, args));
+}
+
+const MISSING_RESULT_CONTENT = JSON.stringify({
+  error: 'MISSING_TOOL_RESULT',
+  detail: '该工具调用缺少结果（可能因异常中断），已自动补全为错误结果。禁止原样重试，请向用户说明情况。',
+});
+
+// [修复] 历史完整性修复：为所有缺少 tool 结果的 assistant(tool_calls) 就地补齐，
+// 保持「assistant → 其 tool 消息组」的原始顺序，而不是简单追加到末尾。
+function ensureHistoryIntegrity(session: Session): void {
+  const src = session.history;
+  const out: ChatCompletionMessageParam[] = [];
+  let i = 0;
+  while (i < src.length) {
+    const m = src[i];
+    out.push(m);
+    i++;
+    if (m.role !== 'assistant' || !m.tool_calls || m.tool_calls.length === 0) continue;
+
+    // 收集紧随其后的 tool 消息组
+    const following: ChatCompletionMessageParam[] = [];
+    while (i < src.length && src[i].role === 'tool') {
+      following.push(src[i]);
+      i++;
+    }
+    out.push(...following);
+
+    const have = new Set<string>();
+    for (const t of following) {
+      if (t.role === 'tool') have.add(t.tool_call_id);
+    }
+    for (const tc of m.tool_calls) {
+      if (have.has(tc.id)) continue;
+      out.push({ role: 'tool', tool_call_id: tc.id, content: MISSING_RESULT_CONTENT });
+      have.add(tc.id);
+    }
+  }
+  if (out.length !== src.length) {
+    src.length = 0;
+    src.push(...out);
+  }
+}
+
+// [修复] 幂等回填：待确认批处理完成后，按 toolCallIds 原始顺序补齐 tool 消息，
+// 已存在的 tool_call_id 跳过，避免并发路径重复 push 同一 tool 消息。
+function flushBatchResults(session: Session, batch: PendingBatch): void {
+  const existing = new Set<string>();
+  for (const m of session.history) {
+    if (m.role === 'tool') existing.add(m.tool_call_id);
+  }
+  for (const id of batch.toolCallIds) {
+    if (existing.has(id)) continue;
+    session.history.push({
+      role: 'tool',
+      tool_call_id: id,
+      content: batch.results[id] ?? MISSING_RESULT_CONTENT,
+    });
+    existing.add(id);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 参数解析
+// ---------------------------------------------------------------------------
+
+// [修复] 解析失败不再静默降级为 {}，而是显式返回错误，交由调用方回注给模型并登记失败。
+type ParsedArgs =
+  | { ok: true; args: Record<string, unknown> }
+  | { ok: false; raw: string; error: string };
+
+function parseArgs(raw: string): ParsedArgs {
+  if (!raw) return { ok: true, args: {} };
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) {
+      return { ok: false, raw, error: 'arguments 必须是 JSON 对象' };
+    }
+    return { ok: true, args: v as Record<string, unknown> };
+  } catch (e) {
+    return { ok: false, raw, error: (e as Error)?.message ?? String(e) };
+  }
+}
+
+function argsOf(p: { parsed: ParsedArgs }): Record<string, unknown> {
+  return p.parsed.ok ? p.parsed.args : {};
+}
+
+function invalidArgsToolResult(name: string, error: string): string {
+  return JSON.stringify({
+    error: 'INVALID_ARGUMENTS',
+    tool: name,
+    detail: `参数解析失败：${error}。本次未执行该工具。`,
+    required_action: '禁止用相同原始参数重试，请修正 JSON 后重新调用。',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 工具执行封装（带异常兜底与取消检查）
+// ---------------------------------------------------------------------------
+
+// [修复] executeTool 统一兜底：内部抛出/网络异常一律转成 { ok:false }，
+// 保证调用方始终能拿到可回填的结果；同时响应 AbortSignal。
+async function executeToolSafely(
+  session: Session,
+  name: string,
+  args: Record<string, unknown>,
+  signal: AbortSignal,
+  idempotencyKey?: string
+): Promise<{ ok: boolean; result: unknown; aborted: boolean }> {
+  if (signal.aborted) {
+    return { ok: false, aborted: true, result: { cancelled: true, message: '请求已取消，工具未执行' } };
+  }
+  try {
+    const r = await executeTool(name, args, {
+      token: session.token,
+      history: formatHistoryForRewrite(session.history),
+      idempotencyKey,
+    });
+    return { ok: r.ok, aborted: false, result: r.result };
+  } catch (e) {
+    return {
+      ok: false,
+      aborted: signal.aborted,
+      result: { error: 'TOOL_EXECUTION_THREW', detail: (e as Error)?.message ?? String(e) },
+    };
+  }
+}
+
+// 执行单个工具并回传结果（事件输出）；不回写历史，由调用方决定回填时机
+async function executeToolAndEmit(
+  emit: EventSink,
+  session: Session,
+  toolCallId: string,
+  name: string,
+  args: Record<string, unknown>,
+  step: number,
+  signal: AbortSignal
+): Promise<{ ok: boolean; content: string }> {
+  emit({ type: 'tool_call', toolCallId, name, arguments: args });
+  const { ok, result, aborted } = await executeToolSafely(session, name, args, signal);
+  emit({ type: 'tool_result', toolCallId, name, ok, result });
+  emit({
+    type: 'log',
+    step,
+    title: `第 ${step} 步：工具返回 ${name}`,
+    detail: aborted ? '已取消，未执行' : ok ? '执行成功' : '执行失败',
+    data: result,
+  });
+  // 取消导致的未执行不算工具失败，不登记签名，避免误导模型
+  if (!aborted) {
+    if (!ok) recordFailure(session, name, args);
+    else markSucceeded(session, name, args);
+  }
+  return { ok, content: stringifyToolResult(result) };
+}
+
+// 执行单个工具并把结果立即写入会话历史（全部只读的分支使用）
+async function runAndEmit(
+  emit: EventSink,
+  session: Session,
+  toolCallId: string,
+  name: string,
+  args: Record<string, unknown>,
+  step: number,
+  signal: AbortSignal
+): Promise<void> {
+  const { content } = await executeToolAndEmit(emit, session, toolCallId, name, args, step, signal);
+  session.history.push({ role: 'tool', tool_call_id: toolCallId, content });
+}
+
+// ---------------------------------------------------------------------------
+// 主循环
+// ---------------------------------------------------------------------------
+
+// 核心 Agent 循环入口：做入口守卫，保证同一会话不会并发跑两份循环
 export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
+  const { emit, session } = opts;
+
+  // [修复] 挂起批未处理时禁止开启新循环，否则 history 中残留的 assistant(tool_calls)
+  // 会因缺少 tool 回填而让下一次请求必然 400。
+  if (session.pendingBatch) {
+    emit({ type: 'error', message: '当前有未处理的待确认写操作，请先确认或取消后再继续对话' });
+    return;
+  }
+
+  if (runningSessions.has(session)) {
+    emit({ type: 'error', message: '当前会话正在处理中，请等待本轮结束后再发送' });
+    return;
+  }
+
+  runningSessions.add(session);
+  try {
+    await runAgentLoopInner(opts);
+  } finally {
+    runningSessions.delete(session);
+  }
+}
+
+async function runAgentLoopInner(opts: AgentLoopOptions): Promise<void> {
   const { emit, session, sessionId, signal } = opts;
   const history = session.history;
   truncateIfNeeded(history);
+  // [修复] 截断可能把 assistant(tool_calls) 与其 tool 消息拆到两侧，这里就地补齐
+  ensureHistoryIntegrity(session);
 
   for (let round = 1; round <= MAX_ROUNDS; round++) {
+    if (signal.aborted) {
+      emit({ type: 'error', message: '请求已取消' });
+      emit({ type: 'message_end', finishReason: 'stop' });
+      return;
+    }
+
     const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: buildSystemPrompt(session.user.name) },
       ...history,
@@ -64,40 +308,69 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
       detail: '调用大模型，携带 OA 工具定义',
     });
 
-    const stream = await client.chat.completions.create(
-      {
-        model: config.openaiModel,
-        messages,
-        tools: TOOL_DEFINITIONS,
-        stream: true,
-      },
-      { signal }
-    );
+    let stream: Awaited<ReturnType<typeof client.chat.completions.create>>;
+    try {
+      stream = await client.chat.completions.create(
+        {
+          model: config.openaiModel,
+          messages,
+          tools: TOOL_DEFINITIONS,
+          stream: true,
+        },
+        { signal }
+      );
+    } catch (e) {
+      emit({
+        type: 'error',
+        message: signal.aborted ? '请求已取消' : `模型调用失败：${(e as Error)?.message ?? String(e)}`,
+      });
+      emit({ type: 'message_end', finishReason: 'stop' });
+      return;
+    }
 
     emit({ type: 'message_start', role: 'assistant' });
 
     let content = '';
-    const toolCalls: ToolCallAccum[] = [];
+    // [修复] 使用 (ToolCallAccum | undefined)[] 承载可能稀疏的 index，
+    // 累积完成后统一过滤掉空洞与缺失 id/name 的残片。
+    const rawToolCalls: (ToolCallAccum | undefined)[] = [];
 
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta;
-      if (!delta) continue;
-      if (delta.content) {
-        content += delta.content;
-        emit({ type: 'message_delta', content: delta.content });
-      }
-      if (delta.tool_calls) {
-        for (const tc of delta.tool_calls) {
-          const idx = tc.index ?? 0;
-          if (!toolCalls[idx]) {
-            toolCalls[idx] = { id: '', type: 'function', function: { name: '', arguments: '' } };
+    try {
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta;
+        if (!delta) continue;
+        if (delta.content) {
+          content += delta.content;
+          emit({ type: 'message_delta', content: delta.content });
+        }
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            if (!rawToolCalls[idx]) {
+              rawToolCalls[idx] = { id: '', type: 'function', function: { name: '', arguments: '' } };
+            }
+            const acc = rawToolCalls[idx]!;
+            if (tc.id) acc.id = tc.id;
+            if (tc.function?.name) acc.function.name = tc.function.name;
+            if (tc.function?.arguments) acc.function.arguments += tc.function.arguments;
           }
-          if (tc.id) toolCalls[idx].id = tc.id;
-          if (tc.function?.name) toolCalls[idx].function.name = tc.function.name;
-          if (tc.function?.arguments) toolCalls[idx].function.arguments += tc.function.arguments;
         }
       }
+    } catch (e) {
+      // [修复] 流式中断：已下发 message_start，必须补 message_end，并回滚未完成的工具调用意图
+      if (signal.aborted) {
+        emit({ type: 'error', message: '请求已取消' });
+      } else {
+        emit({ type: 'error', message: `模型流式响应中断：${(e as Error)?.message ?? String(e)}` });
+      }
+      if (content) history.push({ role: 'assistant', content });
+      emit({ type: 'message_end', finishReason: 'stop' });
+      return;
     }
+
+    const toolCalls = rawToolCalls.filter(
+      (c): c is ToolCallAccum => Boolean(c) && Boolean(c.id) && Boolean(c.function?.name)
+    );
 
     emit({
       type: 'log',
@@ -109,7 +382,8 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
 
     // 纯文本回答：写入会话历史并结束循环
     if (toolCalls.length === 0) {
-      history.push({ role: 'assistant', content });
+      // [修复] 空 content 在部分厂商会触发 400，给一个占位文本
+      history.push({ role: 'assistant', content: content || '（模型未返回内容）' });
       emit({ type: 'message_end', finishReason: 'stop' });
       return;
     }
@@ -125,7 +399,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
     const parsed = toolCalls.map((call) => ({
       call,
       name: call.function.name,
-      args: parseArgs(call.function.arguments),
+      parsed: parseArgs(call.function.arguments),
     }));
     const writeIdx = parsed.findIndex((p) => isWriteTool(p.name));
 
@@ -134,18 +408,43 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
         type: 'log',
         step: round,
         title: `第 ${round} 步：决策工具 ${p.name}`,
-        detail: isWriteTool(p.name) ? '写操作，需用户确认后执行' : '只读操作，直接执行',
-        data: p.args,
+        detail: !p.parsed.ok
+          ? '参数解析失败，将回注错误结果'
+          : isWriteTool(p.name)
+            ? '写操作，需用户确认后执行'
+            : '只读操作，直接执行',
+        data: p.parsed.ok ? p.parsed.args : { __raw__: p.parsed.raw },
       });
     }
 
     emit({ type: 'message_end', finishReason: writeIdx === -1 ? 'tool_calls' : 'confirmation_required' });
 
-    // 全部只读：顺序执行后进入下一轮（同签名重试由 L2 短路，不真正执行）
+    // 全部只读：顺序执行后进入下一轮
     if (writeIdx === -1) {
       for (const p of parsed) {
-        if (shortCircuitIfRepeated(session, p.name, p.args, emit, round) !== null) continue;
-        await runAndEmit(emit, session, p.call.id, p.name, p.args, round);
+        // [修复] 参数解析失败：回注错误 + 登记失败，不再用空参数执行
+        if (!p.parsed.ok) {
+          const content = invalidArgsToolResult(p.name, p.parsed.error);
+          recordFailure(session, p.name, { __raw__: p.parsed.raw });
+          emit({
+            type: 'log',
+            step: round,
+            title: `第 ${round} 步：参数无效 ${p.name}`,
+            detail: p.parsed.error,
+            data: { __raw__: p.parsed.raw },
+          });
+          history.push({ role: 'tool', tool_call_id: p.call.id, content });
+          continue;
+        }
+        const args = p.parsed.args;
+        const blocked = shortCircuitIfRepeated(session, p.name, args, emit, round);
+        if (blocked !== null) {
+          // [修复] 短路时必须同样回填 tool 消息并补发 tool_result，否则 history 缺项 → 400
+          emit({ type: 'tool_result', toolCallId: p.call.id, name: p.name, ok: false, result: JSON.parse(blocked) });
+          history.push({ role: 'tool', tool_call_id: p.call.id, content: blocked });
+          continue;
+        }
+        await runAndEmit(emit, session, p.call.id, p.name, args, round, signal);
       }
       continue;
     }
@@ -157,34 +456,84 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
       pending: [],
     };
 
+    // 先处理只读工具 + 参数非法的写工具（非法参数不弹确认，直接回注错误）
     for (const p of parsed) {
       if (isWriteTool(p.name)) continue;
-      const blocked = shortCircuitIfRepeated(session, p.name, p.args, emit, round);
+      if (!p.parsed.ok) {
+        const content = invalidArgsToolResult(p.name, p.parsed.error);
+        recordFailure(session, p.name, { __raw__: p.parsed.raw });
+        emit({
+          type: 'log',
+          step: round,
+          title: `第 ${round} 步：参数无效 ${p.name}`,
+          detail: p.parsed.error,
+          data: { __raw__: p.parsed.raw },
+        });
+        batch.results[p.call.id] = content;
+        continue;
+      }
+      const args = p.parsed.args;
+      const blocked = shortCircuitIfRepeated(session, p.name, args, emit, round);
       if (blocked !== null) {
         batch.results[p.call.id] = blocked;
         continue;
       }
-      const { content } = await executeToolAndEmit(emit, session, p.call.id, p.name, p.args, round);
+      const { content } = await executeToolAndEmit(emit, session, p.call.id, p.name, args, round, signal);
       batch.results[p.call.id] = content;
     }
 
     for (const p of parsed) {
       if (!isWriteTool(p.name)) continue;
+
+      if (!p.parsed.ok) {
+        const content = invalidArgsToolResult(p.name, p.parsed.error);
+        recordFailure(session, p.name, { __raw__: p.parsed.raw });
+        emit({
+          type: 'log',
+          step: round,
+          title: `第 ${round} 步：参数无效 ${p.name}`,
+          detail: p.parsed.error,
+          data: { __raw__: p.parsed.raw },
+        });
+        batch.results[p.call.id] = content;
+        continue;
+      }
+
+      const args = p.parsed.args;
+
       // L2：同签名写调用已失败过则短路——不执行、不入确认队列（避免重复弹窗骚扰用户）
-      const blocked = shortCircuitIfRepeated(session, p.name, p.args, emit, round);
+      const blocked = shortCircuitIfRepeated(session, p.name, args, emit, round);
       if (blocked !== null) {
         batch.results[p.call.id] = blocked;
         continue;
       }
+
+      // [修复] 同签名写操作已成功执行过：直接回填「已执行」提示，不再重复弹确认框
+      if (isAlreadySucceeded(session, p.name, args)) {
+        emit({
+          type: 'log',
+          step: round,
+          title: `第 ${round} 步：跳过重复写操作 ${p.name}`,
+          detail: '相同工具、相同参数的写操作此前已成功执行，本次跳过',
+          data: args,
+        });
+        batch.results[p.call.id] = JSON.stringify({
+          skipped: true,
+          reason: 'DUPLICATE_WRITE_SKIPPED',
+          detail: '相同工具、相同参数的写操作此前已成功执行，本次已跳过，未重复执行。若确需再次执行，请修改参数或联系用户确认。',
+        });
+        continue;
+      }
+
       const meta = WRITE_TOOL_META[p.name];
       const pending: PendingConfirmation = {
         confirmId: randomUUID(),
         toolName: p.name,
-        args: p.args,
+        args,
         toolCallId: p.call.id,
         step: round,
         title: meta.title,
-        summary: buildSummary(meta, p.args),
+        summary: buildSummary(meta, args),
         severity: meta.severity,
         expiresAt: Date.now() + CONFIRM_TTL,
       };
@@ -195,7 +544,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
         step: round,
         title: `第 ${round} 步：等待用户确认`,
         detail: `${meta.title}：${pending.summary}`,
-        data: p.args,
+        data: args,
       });
 
       emit({
@@ -206,16 +555,15 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
         operationType: 'write',
         title: meta.title,
         summary: pending.summary,
-        payload: p.args,
+        payload: args,
         severity: meta.severity,
       });
     }
-    // 整批调用全部被短路：无待确认项，直接按原始顺序回填短路结果并续跑，
+
+    // 整批调用全部被短路/跳过/非法：无待确认项，直接按原始顺序回填并续跑，
     // 让模型基于「禁止重复执行」指令重新规划（否则会挂起等待不存在的确认）
     if (batch.pending.length === 0) {
-      for (const toolCallId of batch.toolCallIds) {
-        history.push({ role: 'tool', tool_call_id: toolCallId, content: batch.results[toolCallId] ?? '{}' });
-      }
+      flushBatchResults(session, batch);
       continue;
     }
 
@@ -224,10 +572,27 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<void> {
   }
 
   emit({ type: 'error', message: '工具调用轮次超过上限，请换个更具体的问题试试' });
+  // [修复] 超限路径补发 message_end，避免前端一直等待本轮结束
+  emit({ type: 'message_end', finishReason: 'stop' });
 }
 
-// 续传：用户确认（或取消）后执行真正落库 / 构造取消结果，再续跑主循环产出最终答复
+// ---------------------------------------------------------------------------
+// 确认续传
+// ---------------------------------------------------------------------------
+
+// 续传入口：[修复] 用 session 级互斥串行化，杜绝并发确认导致的「重复回填 + 双重续跑」
 export async function resumeAfterConfirmation(opts: {
+  emit: EventSink;
+  session: Session;
+  sessionId: string;
+  confirmId: string;
+  approved: boolean;
+  signal: AbortSignal;
+}): Promise<void> {
+  await withSessionLock(opts.session, () => resumeAfterConfirmationInner(opts));
+}
+
+async function resumeAfterConfirmationInner(opts: {
   emit: EventSink;
   session: Session;
   sessionId: string;
@@ -242,10 +607,40 @@ export async function resumeAfterConfirmation(opts: {
     return;
   }
   const pending = batch.pending.find((p) => p.confirmId === confirmId);
-  if (!pending || pending.expiresAt < Date.now()) {
-    emit({ type: 'error', message: '确认请求不存在或已过期' });
+  if (!pending) {
+    emit({ type: 'error', message: '确认请求不存在或已被处理' });
     return;
   }
+
+  // [修复] 过期路径：移除该项 + 回填为「未执行」+ 若批次已空则正常续跑，
+  // 不再直接 return 把 pendingBatch 永久卡住。
+  if (pending.expiresAt < Date.now()) {
+    batch.pending = batch.pending.filter((p) => p.confirmId !== confirmId);
+    emit({
+      type: 'confirmation_result',
+      sessionId,
+      confirmId,
+      approved: false,
+      rejectedReason: '确认请求已过期',
+    });
+    emit({
+      type: 'log',
+      step: pending.step,
+      title: `第 ${pending.step} 步：确认已过期`,
+      detail: `${pending.toolName} 未执行`,
+    });
+    batch.results[pending.toolCallId] = JSON.stringify({
+      cancelled: true,
+      message: '确认请求已过期，该操作未执行',
+    });
+    if (batch.pending.length === 0) {
+      session.pendingBatch = null;
+      flushBatchResults(session, batch);
+      await runAgentLoop({ emit, session, sessionId, signal });
+    }
+    return;
+  }
+
   const step = pending.step;
   // 从待确认队列移除该项（confirmId 一次性消费，防重放）
   batch.pending = batch.pending.filter((p) => p.confirmId !== confirmId);
@@ -266,12 +661,19 @@ export async function resumeAfterConfirmation(opts: {
 
   let result: unknown;
   let ok = approved;
+  let aborted = false;
   if (approved) {
-    const executed = await executeTool(pending.toolName, pending.args, { token: session.token, history: formatHistoryForRewrite(session.history) });
+    // [修复] 走带兜底的执行封装，异常/取消不会让 pendingBatch 残留
+    // confirmId 作为幂等键：超时重试时后端按同一 key 去重，保证该次写只落库一次
+    const executed = await executeToolSafely(session, pending.toolName, pending.args, signal, pending.confirmId);
     ok = executed.ok;
     result = executed.result;
-    // 确认执行的写操作失败也登记签名：模型若原样重试将被短路，不再重复弹确认框
-    if (!ok) recordFailure(session, pending.toolName, pending.args);
+    aborted = executed.aborted;
+    if (!aborted) {
+      // 确认执行的写操作失败也登记签名：模型若原样重试将被短路，不再重复弹确认框
+      if (!ok) recordFailure(session, pending.toolName, pending.args);
+      else markSucceeded(session, pending.toolName, pending.args);
+    }
   } else {
     result = { cancelled: true, message: '用户已取消该操作' };
   }
@@ -280,7 +682,7 @@ export async function resumeAfterConfirmation(opts: {
     type: 'log',
     step,
     title: `第 ${step} 步：工具返回 ${pending.toolName}`,
-    detail: approved ? (ok ? '执行成功' : '执行失败') : '已取消，未执行',
+    detail: aborted ? '已取消，未执行' : approved ? (ok ? '执行成功' : '执行失败') : '已取消，未执行',
     data: result,
   });
 
@@ -292,14 +694,16 @@ export async function resumeAfterConfirmation(opts: {
     return;
   }
 
-  // 本轮全部写操作已处理：按 tool_calls 原始顺序回填 tool 消息（一个不能少），再续跑主循环
+  // 本轮全部写操作已处理：按 tool_calls 原始顺序幂等回填 tool 消息，再续跑主循环
   session.pendingBatch = null;
-  for (const toolCallId of batch.toolCallIds) {
-    session.history.push({ role: 'tool', tool_call_id: toolCallId, content: batch.results[toolCallId] ?? '{}' });
-  }
+  flushBatchResults(session, batch);
 
   await runAgentLoop({ emit, session, sessionId, signal });
 }
+
+// ---------------------------------------------------------------------------
+// 重复调用检测
+// ---------------------------------------------------------------------------
 
 // L2 同签名短路：该调用签名已失败过则拦截——不真正执行（写工具也不弹确认框），
 // 直接构造「禁止重复执行 + 三选一」纠偏指令作为 tool 结果回注，打破模型重复调用循环。
@@ -335,54 +739,6 @@ function shortCircuitIfRepeated(
 function recordFailure(session: Session, name: string, args: Record<string, unknown>): void {
   const sig = signatureOf(name, args);
   session.failedSigs.set(sig, (session.failedSigs.get(sig) ?? 0) + 1);
-}
-
-// 执行单个工具并回传结果（事件输出），返回执行是否成功与序列化结果；不回写历史，由调用方决定回填时机
-async function executeToolAndEmit(
-  emit: EventSink,
-  session: Session,
-  toolCallId: string,
-  name: string,
-  args: Record<string, unknown>,
-  step: number
-): Promise<{ ok: boolean; content: string }> {
-  emit({ type: 'tool_call', toolCallId, name, arguments: args });
-  const { ok, result } = await executeTool(name, args, { token: session.token, history: formatHistoryForRewrite(session.history) });
-  emit({ type: 'tool_result', toolCallId, name, ok, result });
-  emit({
-    type: 'log',
-    step,
-    title: `第 ${step} 步：工具返回 ${name}`,
-    detail: ok ? '执行成功' : '执行失败',
-    data: result,
-  });
-  if (!ok) recordFailure(session, name, args);
-  return { ok, content: stringifyToolResult(result) };
-}
-
-// 执行单个工具并把结果立即写入会话历史（全部只读的分支使用）
-async function runAndEmit(
-  emit: EventSink,
-  session: Session,
-  toolCallId: string,
-  name: string,
-  args: Record<string, unknown>,
-  step: number
-): Promise<void> {
-  const { content } = await executeToolAndEmit(emit, session, toolCallId, name, args, step);
-  session.history.push({
-    role: 'tool',
-    tool_call_id: toolCallId,
-    content,
-  });
-}
-
-function parseArgs(raw: string): Record<string, unknown> {
-  try {
-    return raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
 }
 
 // 根据写工具元信息拼装确认摘要，如「标题: 提交周报，优先级: HIGH」
