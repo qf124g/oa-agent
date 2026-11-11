@@ -92,6 +92,40 @@ export interface KnowledgeDocument {
   uploadedByName: string; // 上传人姓名（展示字段）
 }
 
+// ---- 用户生成知识条目（FAQ / 同义词）的治理字段 ----
+// 用户产生的数据必须经清洗、审核、带来源与权限字段后才能进入检索链路
+
+export type KnowledgeStatus = 'PENDING' | 'APPROVED';
+export type KnowledgeScope = 'PUBLIC' | 'DEPARTMENT';
+
+// 同义词词典条目：term 为主词，synonyms 为同义/扩展词
+export interface SynonymEntry {
+  id: string;
+  term: string;
+  synonyms: string[];
+  source: string; // 来源：seed / user_query / manual
+  status: KnowledgeStatus;
+  scope: KnowledgeScope;
+  departmentId: string | null; // scope=DEPARTMENT 时限定部门
+  createdBy: string; // 提交人员工 id
+  createdAt: number;
+  updatedAt: number;
+}
+
+// FAQ 条目：高频用户问题，可带答案（答案可空，仅问题本身也可作为可检索文本）
+export interface FaqEntry {
+  id: string;
+  question: string;
+  answer: string | null;
+  source: string;
+  status: KnowledgeStatus;
+  scope: KnowledgeScope;
+  departmentId: string | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ---- 审批流程定义（自研 SVG 工作流画布）----
 
 export type WorkflowNodeType = 'START' | 'APPROVAL' | 'CONDITION' | 'END';

@@ -14,8 +14,10 @@ import type {
   ApprovalType,
   AuthUser,
   Employee,
+  FaqEntry,
   KnowledgeDocument,
   Role,
+  SynonymEntry,
   TodoPriority,
   TodoTask,
   WorkflowDefinition,
@@ -469,12 +471,15 @@ function emitKnowledgeEvent(req: Request): void {
     content: k.content,
     category: k.category,
   }));
+  // 仅同步已审核公开的词典与 FAQ，未审核的用户数据不进检索链路
+  const synonyms = [...store.synonyms.values()].filter((s) => s.status === 'APPROVED' && s.scope === 'PUBLIC');
+  const faqs = [...store.faqs.values()].filter((f) => f.status === 'APPROVED' && f.scope === 'PUBLIC');
   const user = (req as AuthedRequest).currentUser as AuthUser;
   emitDomainEvent({
     type: 'knowledge.updated',
     actorId: user.userId,
     source: (req.headers['x-source'] as string) === 'agent' ? 'agent' : 'web',
-    data: { docs },
+    data: { docs, synonyms, faqs },
   });
 }
 
@@ -506,6 +511,150 @@ app.get('/api/knowledge/full', (_req, res) => {
     uploadedByName: store.employeeName(k.uploadedBy),
   }));
   res.json(ok(list));
+});
+
+// ---------- 同义词词典（查询改写热加载数据源，管理员维护） ----------
+
+// 清洗主词：去首尾空白
+function normalizeTerm(v: string): string {
+  return v.trim();
+}
+
+// 清洗同义词列表：逐项 trim、去空、去重
+function normalizeSynonyms(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of v) {
+    const s = typeof item === 'string' ? item.trim() : '';
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+// 清洗问题：trim + 折叠连续空白
+function normalizeQuestion(v: string): string {
+  return v.trim().replace(/\s+/g, ' ');
+}
+
+// 清洗答案：非字符串或空白返回 null
+function normalizeAnswer(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  return s || null;
+}
+
+// 拉取已审核公开的同义词词典（供 agent-server 查询改写热加载）
+app.get('/api/knowledge/synonyms', (_req, res) => {
+  const list = [...store.synonyms.values()].filter((s) => s.status === 'APPROVED' && s.scope === 'PUBLIC');
+  res.json(ok(list));
+});
+
+// 新增同义词（管理员）：管理员操作视为已审核，直接进入检索链路
+app.post('/api/knowledge/synonyms', requireRole('ADMIN'), (req, res) => {
+  const user = (req as AuthedRequest).currentUser as AuthUser;
+  const body = req.body ?? {};
+  const term = normalizeTerm(str(body.term));
+  const synonyms = normalizeSynonyms(body.synonyms);
+  if (!term || synonyms.length === 0) {
+    throw new BusinessError(400, '主词和同义词不能为空');
+  }
+  const { result, replayed } = store.runIdempotent(idempotencyKey(req), () => {
+    const now = Date.now();
+    const s: SynonymEntry = {
+      id: store.nextId('S'),
+      term,
+      synonyms,
+      source: str(body.source) || 'manual',
+      status: 'APPROVED',
+      scope: 'PUBLIC',
+      departmentId: null,
+      createdBy: user.userId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.synonyms.set(s.id, s);
+    return s;
+  });
+  res.json(ok(result));
+  if (!replayed) emitKnowledgeEvent(req);
+});
+
+// 删除同义词（管理员）：移除后触发事件，词典热加载同步移除
+app.delete('/api/knowledge/synonyms/:id', requireRole('ADMIN'), (req, res) => {
+  if (!store.synonyms.delete(req.params.id)) {
+    throw new BusinessError(404, '同义词不存在');
+  }
+  res.json(ok(null));
+  emitKnowledgeEvent(req);
+});
+
+// ---------- FAQ（高频用户问题，独立索引数据源，需审核） ----------
+
+// 拉取 FAQ：默认只返回已审核公开（供 agent-server 构建独立索引）；
+// 管理员可传 status=PENDING / ALL 查看待审核或全部条目
+app.get('/api/knowledge/faqs', (req, res) => {
+  const user = (req as AuthedRequest).currentUser as AuthUser;
+  const status = queryStr(req.query.status);
+  let list = [...store.faqs.values()];
+  if (status === 'PENDING' || status === 'ALL') {
+    if (user.role !== 'ADMIN') throw new BusinessError(403, '无权限查看待审核 FAQ');
+    if (status === 'PENDING') list = list.filter((f) => f.status === 'PENDING');
+  } else {
+    list = list.filter((f) => f.status === 'APPROVED' && f.scope === 'PUBLIC');
+  }
+  list.sort((a, b) => b.createdAt - a.createdAt);
+  res.json(ok(list));
+});
+
+// 提交用户问题为 FAQ 候选（用户/助手）：PENDING 待审核，暂不进检索链路
+app.post('/api/knowledge/faqs', (req, res) => {
+  const user = (req as AuthedRequest).currentUser as AuthUser;
+  const body = req.body ?? {};
+  const question = normalizeQuestion(str(body.question));
+  const answer = normalizeAnswer(body.answer);
+  if (!question) throw new BusinessError(400, '问题不能为空');
+  const { result, replayed } = store.runIdempotent(idempotencyKey(req), () => {
+    const now = Date.now();
+    const f: FaqEntry = {
+      id: store.nextId('F'),
+      question,
+      answer,
+      source: str(body.source) || 'user_query',
+      status: 'PENDING',
+      scope: 'PUBLIC',
+      departmentId: null,
+      createdBy: user.userId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.faqs.set(f.id, f);
+    return f;
+  });
+  res.json(ok(result));
+  // PENDING 不触发索引同步，审核通过后才同步
+});
+
+// 审核 FAQ（管理员）：通过后进入检索链路
+app.post('/api/knowledge/faqs/:id/approve', requireRole('ADMIN'), (req, res) => {
+  const f = store.faqs.get(req.params.id);
+  if (!f) throw new BusinessError(404, 'FAQ 不存在');
+  f.status = 'APPROVED';
+  f.updatedAt = Date.now();
+  store.faqs.set(f.id, f);
+  res.json(ok(f));
+  emitKnowledgeEvent(req);
+});
+
+// 删除 FAQ（管理员）：驳回候选或移除已审核条目；已审核的删除触发索引同步
+app.delete('/api/knowledge/faqs/:id', requireRole('ADMIN'), (req, res) => {
+  const f = store.faqs.get(req.params.id);
+  if (!f) throw new BusinessError(404, 'FAQ 不存在');
+  store.faqs.delete(req.params.id);
+  res.json(ok(null));
+  if (f.status === 'APPROVED') emitKnowledgeEvent(req);
 });
 
 app.get('/api/knowledge/:id', (req, res) => {

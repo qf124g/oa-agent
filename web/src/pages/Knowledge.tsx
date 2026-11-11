@@ -1,8 +1,8 @@
 import { InboxOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Card, Flex, Form, Input, Modal, Popconfirm, Tag, Typography, Upload, type UploadFile, type UploadProps } from 'antd';
+import { Alert, App, Button, Card, Flex, Form, Input, Modal, Popconfirm, Tag, Tabs, Typography, Upload, type UploadFile, type UploadProps } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { apiDelete, apiGet, apiPost, apiUpload } from '../api';
-import type { KnowledgeDocument, Paged } from '../types';
+import type { FaqEntry, KnowledgeDocument, Paged, SynonymEntry } from '../types';
 import { useAuth } from '../auth/AuthContext';
 import DataTable, { type Column } from '../components/DataTable';
 
@@ -11,10 +11,30 @@ function fmtTime(ts: number): string {
   return ts ? new Date(ts).toLocaleString('zh-CN', { hour12: false }) : '-';
 }
 
-// 知识库：文档列表 / 详情 / 新增 / 删除（管理员）
+// 知识库：文档管理 / FAQ 审核 / 同义词维护（审核与词典仅管理员可见）
 export default function Knowledge() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+
+  const items = [{ key: 'docs', label: '文档', children: <DocumentList isAdmin={isAdmin} /> }];
+  if (isAdmin) {
+    items.push({ key: 'faq', label: 'FAQ 审核', children: <FaqReview /> });
+    items.push({ key: 'synonym', label: '同义词', children: <SynonymManager /> });
+  }
+
+  return (
+    <Flex vertical gap={16}>
+      <Typography.Title level={4} className="page-title">
+        知识库
+      </Typography.Title>
+      <Tabs items={items} />
+    </Flex>
+  );
+}
+
+// ---- 文档管理 ----
+function DocumentList(props: { isAdmin: boolean }) {
+  const { isAdmin } = props;
   const [rows, setRows] = useState<KnowledgeDocument[]>([]);
   const [category, setCategory] = useState('');
   const [loading, setLoading] = useState(true);
@@ -90,9 +110,6 @@ export default function Knowledge() {
   return (
     <Flex vertical gap={16}>
       <Flex justify="space-between" align="center">
-        <Typography.Title level={4} className="page-title">
-          知识库
-        </Typography.Title>
         {isAdmin && (
           <Flex gap={8}>
             <Button type="primary" icon={<UploadOutlined />} onClick={() => setShowUpload(true)}>
@@ -117,6 +134,205 @@ export default function Knowledge() {
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreated={load} />}
       {showUpload && <UploadModal onClose={() => setShowUpload(false)} onCreated={load} />}
     </Flex>
+  );
+}
+
+// ---- FAQ 审核 ----
+function FaqReview() {
+  const { message } = App.useApp();
+  const [rows, setRows] = useState<FaqEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiGet<FaqEntry[]>('/api/knowledge/faqs?status=PENDING');
+      setRows(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载失败');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const approve = async (id: string) => {
+    try {
+      await apiPost(`/api/knowledge/faqs/${id}/approve`);
+      message.success('已通过，进入检索链路');
+      load();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '审核失败');
+    }
+  };
+
+  const reject = async (id: string) => {
+    try {
+      await apiDelete(`/api/knowledge/faqs/${id}`);
+      message.success('已驳回');
+      load();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '驳回失败');
+    }
+  };
+
+  const columns: Column<FaqEntry>[] = [
+    { key: 'question', title: '问题' },
+    { key: 'source', title: '来源', render: (r) => <Tag>{r.source}</Tag> },
+    { key: 'createdAt', title: '提交时间', render: (r) => fmtTime(r.createdAt) },
+    {
+      key: 'action',
+      title: '操作',
+      render: (r) => (
+        <Flex gap={8}>
+          <Button type="primary" size="small" onClick={() => approve(r.id)}>
+            通过
+          </Button>
+          <Popconfirm title="确认驳回该 FAQ？" onConfirm={() => reject(r.id)} okText="驳回" cancelText="取消" okButtonProps={{ danger: true }}>
+            <Button type="link" size="small" danger>
+              驳回
+            </Button>
+          </Popconfirm>
+        </Flex>
+      ),
+    },
+  ];
+
+  return (
+    <Card>
+      {error && <Alert type="error" showIcon title={error} className="mb-12" />}
+      <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} loading={loading} emptyText="暂无待审核的 FAQ" />
+    </Card>
+  );
+}
+
+// ---- 同义词维护 ----
+function SynonymManager() {
+  const { message } = App.useApp();
+  const [rows, setRows] = useState<SynonymEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiGet<SynonymEntry[]>('/api/knowledge/synonyms');
+      setRows(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载失败');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const remove = async (id: string) => {
+    try {
+      await apiDelete(`/api/knowledge/synonyms/${id}`);
+      message.success('已删除');
+      load();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '删除失败');
+    }
+  };
+
+  const columns: Column<SynonymEntry>[] = [
+    { key: 'term', title: '主词', render: (r) => <Tag color="blue">{r.term}</Tag> },
+    {
+      key: 'synonyms',
+      title: '同义/扩展词',
+      render: (r) => (
+        <Flex gap={4} wrap>
+          {r.synonyms.map((s) => (
+            <Tag key={s}>{s}</Tag>
+          ))}
+        </Flex>
+      ),
+    },
+    { key: 'source', title: '来源', render: (r) => <Tag>{r.source}</Tag> },
+    {
+      key: 'action',
+      title: '操作',
+      render: (r) => (
+        <Popconfirm title="确认删除该同义词？删除后将热加载同步移除。" onConfirm={() => remove(r.id)} okText="删除" cancelText="取消" okButtonProps={{ danger: true }}>
+          <Button type="link" size="small" danger>
+            删除
+          </Button>
+        </Popconfirm>
+      ),
+    },
+  ];
+
+  return (
+    <Flex vertical gap={16}>
+      <Flex>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setShowCreate(true)}>
+          新增同义词
+        </Button>
+      </Flex>
+      <Card>
+        {error && <Alert type="error" showIcon title={error} className="mb-12" />}
+        <DataTable columns={columns} rows={rows} rowKey={(r) => r.id} loading={loading} emptyText="暂无同义词" />
+      </Card>
+      {showCreate && <SynonymCreateModal onClose={() => setShowCreate(false)} onCreated={load} />}
+    </Flex>
+  );
+}
+
+// 新增同义词弹窗：主词 + 逗号分隔的同义/扩展词
+function SynonymCreateModal(props: { onClose: () => void; onCreated: () => void }) {
+  const { onClose, onCreated } = props;
+  const { message } = App.useApp();
+  const [form] = Form.useForm();
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleOk = async () => {
+    let values: { term: string; synonyms: string };
+    try {
+      values = await form.validateFields();
+    } catch {
+      return;
+    }
+    const synonyms = values.synonyms
+      .split(/[,，、]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (synonyms.length === 0) {
+      message.warning('请至少输入一个同义/扩展词');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await apiPost('/api/knowledge/synonyms', { term: values.term.trim(), synonyms });
+      message.success('已添加');
+      onCreated();
+      onClose();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '添加失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal title="新增同义词" open onOk={handleOk} onCancel={onClose} confirmLoading={submitting} okText="保存" cancelText="取消">
+      <Form form={form} layout="vertical" requiredMark={false}>
+        <Form.Item name="term" label="主词" rules={[{ required: true, message: '请输入主词' }]}>
+          <Input placeholder="如 报销" />
+        </Form.Item>
+        <Form.Item name="synonyms" label="同义/扩展词（逗号分隔）" rules={[{ required: true, message: '请输入同义/扩展词' }]}>
+          <Input placeholder="如 费用报销, 差旅费" />
+        </Form.Item>
+      </Form>
+    </Modal>
   );
 }
 

@@ -1,7 +1,7 @@
 import { config } from '../config';
 import { getSkill, runSkillScript } from '../skills';
 import { buildErrorFeedback, buildTransientError, buildMalformedResponseError } from './error-feedback';
-import { searchKnowledge, invalidateIndex } from '../rag/knowledge-sync';
+import { searchKnowledge, invalidateIndex, collectUserQuery } from '../rag/knowledge-sync';
 import { rewriteQueryForSearch, splitMultiIntentQuery } from '../rag/query-rewrite';
 import type { SearchHit } from '../rag/vector-index';
 
@@ -106,6 +106,7 @@ export async function executeTool(name: string, args: Record<string, unknown>, c
     if (!query) {
       return { ok: false, result: { error: 'MISSING_PARAM', tool: name, field: 'query', hint: '检索问题不能为空，请传入具体的检索关键词' } };
     }
+    collectUserQuery(query, ctx.token); // 采集原始问题（改写前），提交为 FAQ 候选待审核
     try {
       const rewritten = await rewriteQueryForSearch(query, ctx.history);
       const subQueries = await splitMultiIntentQuery(rewritten);

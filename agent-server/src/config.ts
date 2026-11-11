@@ -19,6 +19,8 @@ export const config = {
   platformApiBase: process.env.PLATFORM_API_BASE || 'http://localhost:8080',
   // RAG 检索返回的文本块数量
   knowledgeTopK: Number(process.env.KNOWLEDGE_TOP_K || 4),
+  // 用户问题达到该频次才沉淀为 FAQ 知识条目
+  faqThreshold: Number(process.env.FAQ_THRESHOLD || 3),
   // 领域事件内部回调密钥（backend → agent-server 的 /internal/events 鉴权）
   internalSecret: process.env.INTERNAL_SECRET || 'dev-internal-secret',
 };

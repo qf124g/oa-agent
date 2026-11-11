@@ -78,6 +78,34 @@ export interface KnowledgeDocument {
   uploadedByName: string;
 }
 
+// FAQ 条目（高频用户问题，需审核后进入检索链路）
+export interface FaqEntry {
+  id: string;
+  question: string;
+  answer: string | null;
+  source: string;
+  status: 'PENDING' | 'APPROVED';
+  scope: 'PUBLIC' | 'DEPARTMENT';
+  departmentId: string | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// 同义词词典条目（查询改写热加载数据源）
+export interface SynonymEntry {
+  id: string;
+  term: string;
+  synonyms: string[];
+  source: string;
+  status: 'PENDING' | 'APPROVED';
+  scope: 'PUBLIC' | 'DEPARTMENT';
+  departmentId: string | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Paged<T> {
   list: T[];
   total: number;

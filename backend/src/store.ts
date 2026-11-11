@@ -10,8 +10,10 @@ import type {
   ApprovalType,
   Department,
   Employee,
+  FaqEntry,
   KnowledgeDocument,
   Role,
+  SynonymEntry,
   TodoPriority,
   TodoStatus,
   TodoTask,
@@ -35,6 +37,8 @@ const TABLES = [
   'approvals',
   'announcements',
   'knowledge_docs',
+  'synonyms',
+  'faqs',
   'workflows',
 ] as const;
 type TableName = (typeof TABLES)[number];
@@ -117,6 +121,8 @@ export class Store {
   approvals: Collection<ApprovalRequest>;
   announcements: Collection<Announcement>;
   knowledgeDocs: Collection<KnowledgeDocument>;
+  synonyms: Collection<SynonymEntry>;
+  faqs: Collection<FaqEntry>;
   workflows: Collection<WorkflowDefinition>;
 
   constructor() {
@@ -132,6 +138,8 @@ export class Store {
     this.approvals = new Collection<ApprovalRequest>(this.db, 'approvals');
     this.announcements = new Collection<Announcement>(this.db, 'announcements');
     this.knowledgeDocs = new Collection<KnowledgeDocument>(this.db, 'knowledge_docs');
+    this.synonyms = new Collection<SynonymEntry>(this.db, 'synonyms');
+    this.faqs = new Collection<FaqEntry>(this.db, 'faqs');
     this.workflows = new Collection<WorkflowDefinition>(this.db, 'workflows');
 
     if (fresh) {
@@ -140,6 +148,7 @@ export class Store {
       }
       this.syncIdSeq();
     }
+    this.ensureSynonymSeed();
   }
 
   // 建表：实体表 + 自增序列 + 幂等记录表
@@ -320,6 +329,19 @@ export class Store {
   private workflow(id: string, name: string, approvalType: ApprovalType | null, nodes: WorkflowNode[], edges: WorkflowEdge[]): WorkflowDefinition {
     const now = Date.now();
     return { id, name, approvalType, nodes, edges, createdBy: 'E001', createdByName: '陈昊', createdAt: now, updatedAt: now };
+  }
+
+  // 确保同义词词典有初始条目（幂等：仅当词典为空时注入，供查询改写热加载演示）
+  private ensureSynonymSeed(): void {
+    if (this.synonyms.size > 0) return;
+    this.synonyms.set('S001', this.synonym('S001', '报销', ['费用报销', '差旅费', '报销单']));
+    this.synonyms.set('S002', this.synonym('S002', '请假', ['休假', '年假', '事假']));
+    this.synonyms.set('S003', this.synonym('S003', '工资', ['薪资', '薪酬', '发薪']));
+  }
+
+  private synonym(id: string, term: string, synonyms: string[]): SynonymEntry {
+    const now = Date.now();
+    return { id, term, synonyms, source: 'seed', status: 'APPROVED', scope: 'PUBLIC', departmentId: null, createdBy: 'E001', createdAt: now, updatedAt: now };
   }
 }
 

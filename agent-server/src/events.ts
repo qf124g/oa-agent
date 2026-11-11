@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { writeSSE } from './sse';
-import { syncFromEvent, type KnowledgeDocument } from './rag/knowledge-sync';
+import { syncFromEvent, type FaqSource, type KnowledgeDocument } from './rag/knowledge-sync';
+import type { SynonymSource } from './rag/synonym-dict';
 
 // 助手主动触达：常驻事件通道（SSE）连接管理 + 领域事件转模板推送
 // 连接注册表按用户维度维护（同一用户可能开多个标签页，全部推送）
@@ -70,8 +71,10 @@ export function handleDomainEvent(event: DomainEvent): void {
   // 知识库变更：实时重建向量索引（异步），不推送用户消息
   if (event.type === 'knowledge.updated') {
     const docs = (event.data.docs as KnowledgeDocument[]) ?? [];
-    syncFromEvent(docs)
-      .then(() => console.log(`[agent-server][notify] 知识库向量索引已更新（${docs.length} 篇）`))
+    const synonyms = (event.data.synonyms as SynonymSource[]) ?? [];
+    const faqs = (event.data.faqs as FaqSource[]) ?? [];
+    syncFromEvent({ docs, synonyms, faqs })
+      .then(() => console.log(`[agent-server][notify] 知识库索引已更新（${docs.length} 篇文档 / ${faqs.length} 条 FAQ / ${synonyms.length} 条同义词）`))
       .catch((err) => console.warn(`[agent-server][notify] 知识库向量更新失败: ${err instanceof Error ? err.message : String(err)}`));
     return;
   }
