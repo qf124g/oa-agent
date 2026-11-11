@@ -1,6 +1,5 @@
 # React 渲染原理：从 setState 到 DOM 渲染的完整旅程
 
-> 配套《面试题-高级前端（UIUX-Electron-AI智能体）·参考答案版》Q1/Q3 的底层原理补充。
 > 本文用通俗比喻 + 机制拆解讲清三件事：setState 的完整流程、Hooks 的底层工作原理、Fiber 双树 diff 如何保留 DOM 只增量更新。
 
 ---
@@ -169,7 +168,7 @@ setState({n: n+1})
 
 ---
 
-## 六、面试浓缩版（60 秒口述）
+## 六、简易版
 
 > 「setState 只是往 Fiber 的 Hook 更新队列里登记一个更新，然后触发调度；调度器批量处理后进入 render 阶段——组件函数重跑，Hooks 按调用顺序从 Fiber 的 memoizedState 链表上取数、算新 state，产出新元素树并与 current 树 diff 出变更清单，这阶段纯内存可中断；commit 阶段按清单一次性改真实 DOM，跑 layout effects，然后 wip 树转正；浏览器绘制后再异步跑 useEffect。Hooks 的本质就是挂在 Fiber 上、按调用序号对齐的链表节点——这同时解释了状态为什么不丢、为什么不能条件调用、以及 useMemo 的缓存存在哪。」
 
